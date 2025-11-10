@@ -72,13 +72,16 @@ async function createTestUsers() {
         where: { userId: userData.userId },
       })
       
-      // 如果 userId 不存在，檢查 email 是否已存在
+      // 如果 userId 不存在，檢查 email + provider 是否已存在
       if (!existingUser && userData.email) {
-        const existingByEmail = await prisma.user.findUnique({
-          where: { email: userData.email },
+        const existingByEmail = await prisma.user.findFirst({
+          where: {
+            email: userData.email,
+            provider: 'local', // 測試用戶使用 local provider
+          },
         })
         if (existingByEmail) {
-          console.log(`⚠️  用戶 ${userData.userId} 的 email ${userData.email} 已被使用，跳過`)
+          console.log(`⚠️  用戶 ${userData.userId} 的 email ${userData.email} 已被使用（local provider），跳過`)
           continue
         }
       }

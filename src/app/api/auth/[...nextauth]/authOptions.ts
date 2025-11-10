@@ -103,12 +103,18 @@ function buildProviders() {
       GitHubProvider({
         clientId: githubId!,
         clientSecret: githubSecret!,
+        authorization: {
+          params: {
+            scope: 'read:user user:email',
+          },
+        },
       })
     )
     if (process.env.NODE_ENV === 'development') {
       console.log('  ✓ GitHub Provider 已添加')
       console.log(`  📋 GitHub 回调 URL: ${githubCallbackUrl}`)
       console.log(`  ⚠️  请确保 GitHub Developer Settings 中配置了此回调 URL`)
+      console.log(`  ⚠️  GitHub OAuth App 的 Authorization callback URL 必须完全匹配: ${githubCallbackUrl}`)
     }
   }
 
@@ -172,6 +178,10 @@ export const authOptions: NextAuthConfig = {
   providers: providers, // 使用在模块级别构建的 providers
   // 显式设置 trustHost 以确保在生产环境中正确处理 cookies
   trustHost: true,
+  // 确保在生产环境中正确处理 cookies
+  useSecureCookies: process.env.NODE_ENV === 'production',
+  // 调试选项（生产环境也启用，方便排查问题）
+  debug: process.env.NODE_ENV === 'development' || process.env.NEXTAUTH_DEBUG === 'true',
   callbacks: {
     async session({ session, token }) {
       // ========== Session Callback 调试日志 ==========
@@ -296,6 +306,23 @@ export const authOptions: NextAuthConfig = {
         console.log('[OAuth] User Image:', user.image || '未提供')
         console.log('[OAuth] Account Type:', account.type)
         console.log('[OAuth] Account Provider:', account.provider)
+        
+        // 验证 provider 值是否正确
+        if (account.provider !== 'github' && account.provider !== 'google') {
+          console.error('[OAuth] ❌ 错误：未知的 provider:', account.provider)
+          throw new Error(`不支持的 OAuth provider: ${account.provider}`)
+        }
+        
+        // 验证 GitHub 登录使用正确的 provider
+        if (account.provider === 'github') {
+          console.log('[OAuth] ✓ GitHub 登录，provider 正确: github')
+        }
+        
+        // 验证 Google 登录使用正确的 provider
+        if (account.provider === 'google') {
+          console.log('[OAuth] ✓ Google 登录，provider 正确: google')
+        }
+        
         console.log('[OAuth] =====================================')
         
         // 验证：OAuth 登录必须有 email
@@ -304,34 +331,68 @@ export const authOptions: NextAuthConfig = {
           throw new Error('OAuth 登录失败：未获取到 email 信息。请确保您的 OAuth 账号已授权 email 权限。')
         }
         
-        // OAuth 登录：优先根据 email 查找用户（email 是 OAuth 的稳定标识）
-        // 如果 email 不存在，则根据 provider + providerId 查找（兼容旧数据）
+        // OAuth 登录：优先根据 provider + providerId 查找（最准确的匹配）
+        // 如果没找到，再根据 email + provider 查找（email 相同但 provider 不同视为不同账号）
+        // 这样可以区分同一个 email 用不同 provider 登录的情况
         let dbUser = null
         
-        // 优先根据 email 查找
+        // 优先根据 provider + providerId 查找（最准确的匹配）
+        // 确保使用正确的 provider 值（github 或 google）
+        const correctProvider = account.provider === 'github' ? 'github' : account.provider === 'google' ? 'google' : account.provider
+        console.log('[OAuth] 使用 provider 查找用户:', correctProvider)
+        
         try {
-          dbUser = await prisma.user.findUnique({
-            where: { email: user.email },
+          dbUser = await prisma.user.findFirst({
+            where: {
+              provider: correctProvider,
+              providerId: account.providerAccountId,
+            },
           })
-          console.log('[OAuth] 根据 email 查找用户:', user.email, dbUser ? `✓ 找到 (ID: ${dbUser.userId})` : '✗ 未找到')
+          console.log('[OAuth] 根据 provider + providerId 查找用户:', correctProvider, account.providerAccountId, dbUser ? `✓ 找到 (ID: ${dbUser.userId}, Email: ${dbUser.email}, Provider: ${dbUser.provider})` : '✗ 未找到')
+          
+          // 验证找到的用户 provider 是否匹配
+          if (dbUser && dbUser.provider !== correctProvider) {
+            console.error('[OAuth] ❌ 错误：找到的用户 provider 不匹配:', {
+              expected: correctProvider,
+              found: dbUser.provider,
+              userId: dbUser.userId,
+            })
+            // 不抛出错误，继续查找（可能是旧数据）
+            dbUser = null
+          }
         } catch (error) {
-          console.error('[OAuth] 根据 email 查找用户时出错:', error)
+          console.error('[OAuth] 根据 provider + providerId 查找用户时出错:', error)
         }
         
-        // 如果根据 email 没找到，尝试根据 provider + providerId 查找（兼容旧数据）
+        // 如果根据 provider + providerId 没找到，尝试根据 email + provider 查找
+        // 这样可以找到同一个 provider 下相同 email 的用户（即使 providerId 可能不同，比如旧数据）
         if (!dbUser) {
           try {
             dbUser = await prisma.user.findFirst({
               where: {
-                provider: account.provider,
-                providerId: account.providerAccountId,
+                email: user.email,
+                provider: correctProvider,
               },
             })
-            console.log('[OAuth] 根据 provider 查找用户:', account.provider, account.providerAccountId, dbUser ? `✓ 找到 (ID: ${dbUser.userId})` : '✗ 未找到')
+            console.log('[OAuth] 根据 email + provider 查找用户:', user.email, correctProvider, dbUser ? `✓ 找到 (ID: ${dbUser.userId}, Provider: ${dbUser.provider})` : '✗ 未找到')
+            
+            // 验证找到的用户 provider 是否匹配
+            if (dbUser && dbUser.provider !== correctProvider) {
+              console.error('[OAuth] ❌ 错误：找到的用户 provider 不匹配:', {
+                expected: correctProvider,
+                found: dbUser.provider,
+                userId: dbUser.userId,
+              })
+              // 不抛出错误，继续查找（可能是旧数据）
+              dbUser = null
+            }
           } catch (error) {
-            console.error('[OAuth] 根据 provider 查找用户时出错:', error)
+            console.error('[OAuth] 根据 email + provider 查找用户时出错:', error)
           }
         }
+        
+        // 如果还是没找到，说明这是新用户（即使 email 相同，但 provider 不同）
+        // 这种情况下会走下面的新用户创建流程
         
         if (dbUser) {
           // ========== 已存在用户：检查是否有 userID ==========
@@ -348,6 +409,18 @@ export const authOptions: NextAuthConfig = {
               console.log('[OAuth] 生成临时 userID:', tempUserId)
               
               // 更新用户记录，设置临时 userID
+              // 确保使用正确的 provider（优先使用 account.provider，因为它是最新的）
+              const updateProvider = correctProvider // 使用已验证的 correctProvider
+              console.log('[OAuth] 更新用户，使用 provider:', updateProvider, '数据库中的 provider:', dbUser.provider)
+              
+              // 如果数据库中的 provider 与当前登录的 provider 不匹配，更新它
+              if (dbUser.provider !== updateProvider) {
+                console.log('[OAuth] ⚠️ 检测到 provider 不匹配，将更新:', {
+                  old: dbUser.provider,
+                  new: updateProvider,
+                })
+              }
+              
               const updatedUser = await prisma.user.update({
                 where: { id: dbUser.id },
                 data: {
@@ -356,10 +429,21 @@ export const authOptions: NextAuthConfig = {
                   name: dbUser.name || user.name || 'User',
                   email: dbUser.email || user.email,
                   avatarUrl: dbUser.avatarUrl || user.image || null,
-                  provider: dbUser.provider || account.provider,
+                  provider: updateProvider, // 使用正确的 provider
                   providerId: dbUser.providerId || account.providerAccountId,
                 },
               })
+              
+              // 验证更新后的 provider 是否正确
+              if (updatedUser.provider !== updateProvider) {
+                console.error('[OAuth] ❌ 错误：更新后的用户 provider 不正确:', {
+                  expected: updateProvider,
+                  found: updatedUser.provider,
+                  userId: updatedUser.userId,
+                })
+              } else {
+                console.log('[OAuth] ✓ 用户更新成功，provider 正确:', updatedUser.provider)
+              }
               
               console.log('[OAuth] ✓ 用户已更新，设置临时 userID:', {
                 id: updatedUser.id,
@@ -373,8 +457,16 @@ export const authOptions: NextAuthConfig = {
               token.email = updatedUser.email || undefined
               token.name = updatedUser.name
               token.image = updatedUser.avatarUrl || undefined
-              token.provider = updatedUser.provider
+              token.provider = updateProvider // 使用正确的 provider
               token.providerId = updatedUser.providerId
+              
+              // 验证 token 中的 provider 是否正确
+              if (token.provider !== updateProvider) {
+                console.error('[OAuth] ❌ 错误：token.provider 设置不正确:', {
+                  expected: updateProvider,
+                  found: token.provider,
+                })
+              }
               token.needsUserIdSetup = true // 标记需要设置正式 userID
               token.loginIdentifier = updatedUser.email || updatedUser.userId
               
@@ -394,6 +486,30 @@ export const authOptions: NextAuthConfig = {
             // 记录登录标识：优先使用 email，如果没有则使用 userId
             token.loginIdentifier = dbUser.email || dbUser.userId
             token.needsUserIdSetup = false
+            
+            // 确保 token 中的 provider 正确（使用已验证的 correctProvider）
+            token.provider = correctProvider
+            token.providerId = dbUser.providerId || account.providerAccountId
+            
+            // 验证 token 中的 provider 是否正确
+            if (token.provider !== correctProvider) {
+              console.error('[OAuth] ❌ 错误：token.provider 设置不正确:', {
+                expected: correctProvider,
+                found: token.provider,
+              })
+            } else {
+              console.log('[OAuth] ✓ Token provider 正确:', token.provider)
+            }
+            
+            // 如果数据库中的 provider 与当前登录的 provider 不匹配，记录警告（但不阻止登录）
+            if (dbUser.provider !== correctProvider) {
+              console.warn('[OAuth] ⚠️ 警告：数据库中的 provider 与登录 provider 不匹配:', {
+                databaseProvider: dbUser.provider,
+                loginProvider: correctProvider,
+                userId: dbUser.userId,
+                note: '建议更新数据库中的 provider 值',
+              })
+            }
             console.log('[OAuth] ✓ 登录成功 - 已存在用户:', {
               userId: dbUser.userId,
               email: dbUser.email,
@@ -411,8 +527,10 @@ export const authOptions: NextAuthConfig = {
         } else {
           // ========== 新用户：自动生成临时 ID 并创建用户 ==========
           console.log('[OAuth] ✗ 新用户，自动创建账户')
+          console.log('[OAuth] Provider:', account.provider)
           console.log('[OAuth] Email:', user.email)
-          console.log('[OAuth] 数据库中未找到该 email 对应的用户')
+          console.log('[OAuth] 数据库中未找到该 provider + email 组合对应的用户')
+          console.log('[OAuth] 注意：即使 email 相同，不同 provider 也会被视为不同账号')
           
           try {
             // 生成唯一的临时 userID（20 个字符，数字+英文字母）
@@ -421,16 +539,121 @@ export const authOptions: NextAuthConfig = {
             console.log('[OAuth] 生成临时 userID:', tempUserId)
             
             // 创建用户记录（包含 OAuth 信息和临时 userID）
-            const newUser = await prisma.user.create({
-              data: {
-                userId: tempUserId,
-                name: user.name || 'User',
-                email: user.email, // email 是必需的
-                avatarUrl: user.image || null,
-                provider: account.provider,
-                providerId: account.providerAccountId,
-              },
-            })
+            // 确保使用正确的 provider 值
+            const providerToSave = account.provider === 'github' ? 'github' : account.provider === 'google' ? 'google' : account.provider
+            console.log('[OAuth] 创建新用户，使用 provider:', providerToSave)
+            
+            let newUser
+            try {
+              newUser = await prisma.user.create({
+                data: {
+                  userId: tempUserId,
+                  name: user.name || 'User',
+                  email: user.email, // email 是必需的
+                  avatarUrl: user.image || null,
+                  provider: providerToSave,
+                  providerId: account.providerAccountId,
+                },
+              })
+            } catch (createError: any) {
+              // 处理数据库唯一约束错误
+              // 现在数据库应该使用 [email, provider] 复合唯一索引
+              if (createError.code === 'P2002') {
+                const constraintTarget = createError.meta?.target || []
+                const isEmailProviderConstraint = Array.isArray(constraintTarget) && 
+                  constraintTarget.includes('email') && constraintTarget.includes('provider')
+                
+                if (isEmailProviderConstraint) {
+                  // 这是 [email, provider] 复合唯一约束冲突
+                  // 说明相同 email + provider 的用户已存在，应该使用现有用户
+                  console.warn('[OAuth] ⚠️ 检测到 [email, provider] 复合唯一约束冲突')
+                  console.warn('[OAuth] 错误详情:', {
+                    code: createError.code,
+                    constraint: constraintTarget,
+                    message: createError.message,
+                  })
+                  
+                  // 查找现有用户（应该能找到，因为约束冲突说明已存在）
+                  const existingUser = await prisma.user.findFirst({
+                    where: {
+                      email: user.email,
+                      provider: providerToSave,
+                    },
+                  })
+                  
+                  if (existingUser) {
+                    console.log('[OAuth] 找到现有用户（相同 email + provider），使用现有用户:', {
+                      userId: existingUser.userId,
+                      email: existingUser.email,
+                      provider: existingUser.provider,
+                    })
+                    newUser = existingUser
+                  } else {
+                    // 找不到用户，但约束冲突，说明数据库状态不一致
+                    console.error('[OAuth] ❌ 数据库状态不一致：约束冲突但找不到用户')
+                    throw new Error(
+                      `数据库状态不一致：检测到 [email, provider] 约束冲突，但找不到现有用户。` +
+                      `请检查数据库状态或联系管理员。`
+                    )
+                  }
+                } else if (constraintTarget.includes('email') && !constraintTarget.includes('provider')) {
+                  // 这是旧的 email 唯一索引冲突（不应该发生，因为索引已修复）
+                  console.error('[OAuth] ❌ 检测到旧的 email 唯一索引冲突（索引可能未正确修复）')
+                  console.error('[OAuth] 错误详情:', {
+                    code: createError.code,
+                    constraint: constraintTarget,
+                    message: createError.message,
+                  })
+                  
+                  // 尝试查找现有用户
+                  const existingUserWithEmail = await prisma.user.findFirst({
+                    where: {
+                      email: user.email,
+                    },
+                  })
+                  
+                  if (existingUserWithEmail) {
+                    if (existingUserWithEmail.provider !== providerToSave) {
+                      throw new Error(
+                        `数据库索引配置错误：存在旧的 email 唯一索引。` +
+                        `请运行 "npm run fix-mongodb-indexes" 删除旧的索引。` +
+                        `详细信息：现有用户 provider=${existingUserWithEmail.provider}，尝试创建 provider=${providerToSave}`
+                      )
+                    } else {
+                      console.log('[OAuth] Provider 相同，使用现有用户')
+                      newUser = existingUserWithEmail
+                    }
+                  } else {
+                    throw new Error(
+                      `数据库索引配置错误：email 唯一约束冲突。` +
+                      `请运行 "npm run fix-mongodb-indexes" 更新索引。`
+                    )
+                  }
+                } else {
+                  // 其他唯一约束错误（如 userId）
+                  console.error('[OAuth] ❌ 其他唯一约束冲突:', {
+                    code: createError.code,
+                    constraint: constraintTarget,
+                    message: createError.message,
+                  })
+                  throw createError
+                }
+              } else {
+                // 其他错误，直接抛出
+                throw createError
+              }
+            }
+            
+            // 验证创建的用户的 provider 是否正确
+            if (newUser.provider !== providerToSave) {
+              console.error('[OAuth] ❌ 错误：创建的用户 provider 不正确:', {
+                expected: providerToSave,
+                found: newUser.provider,
+                userId: newUser.userId,
+              })
+            } else {
+              console.log('[OAuth] ✓ 用户创建成功，provider 正确:', newUser.provider)
+            }
             
             console.log('[OAuth] ✓ 用户已创建:', {
               id: newUser.id,
@@ -444,8 +667,16 @@ export const authOptions: NextAuthConfig = {
             token.email = newUser.email || undefined
             token.name = newUser.name
             token.image = newUser.avatarUrl || undefined
-            token.provider = account.provider
+            token.provider = providerToSave
             token.providerId = account.providerAccountId
+            
+            // 验证 token 中的 provider 是否正确
+            if (token.provider !== providerToSave) {
+              console.error('[OAuth] ❌ 错误：token.provider 设置不正确:', {
+                expected: providerToSave,
+                found: token.provider,
+              })
+            }
             token.needsUserIdSetup = true // 标记需要设置正式 userID
             token.loginIdentifier = newUser.email || newUser.userId
             
@@ -533,32 +764,64 @@ export const authOptions: NextAuthConfig = {
       
       console.log('[SignIn] ✓ Email 验证通过:', user.email)
       
-      // 根据 email 查找用户（优先）
+      // 验证 provider 值
+      const signInProvider = account.provider === 'github' ? 'github' : account.provider === 'google' ? 'google' : account.provider
+      console.log('[SignIn] 使用 provider 查找用户:', signInProvider)
+      
+      if (signInProvider !== 'github' && signInProvider !== 'google') {
+        console.error('[SignIn] ❌ 错误：未知的 provider:', account.provider)
+        return false
+      }
+      
+      // 根据 provider + providerId 查找用户（最准确的匹配）
       let existingUser = null
       try {
-        existingUser = await prisma.user.findUnique({
-          where: { email: user.email },
+        existingUser = await prisma.user.findFirst({
+          where: {
+            provider: signInProvider,
+            providerId: account.providerAccountId,
+          },
         })
         if (existingUser) {
-          console.log('[SignIn] ✓ 找到已存在用户 (email):', existingUser.userId)
+          console.log('[SignIn] ✓ 找到已存在用户 (provider + providerId):', existingUser.userId, 'Provider:', existingUser.provider)
+          
+          // 验证找到的用户的 provider 是否匹配
+          if (existingUser.provider !== signInProvider) {
+            console.error('[SignIn] ❌ 错误：找到的用户 provider 不匹配:', {
+              expected: signInProvider,
+              found: existingUser.provider,
+              userId: existingUser.userId,
+            })
+            existingUser = null // 重置，继续查找
+          }
         } else {
-          console.log('[SignIn] ✗ 未找到用户 (email):', user.email, '- 需要注册')
+          console.log('[SignIn] ✗ 未找到用户 (provider + providerId)')
         }
       } catch (error) {
         console.error('[SignIn] 查找用户时出错:', error)
       }
       
-      // 如果根据 email 没找到，尝试根据 provider + providerId 查找（兼容旧数据）
+      // 如果根据 provider + providerId 没找到，尝试根据 email + provider 查找
       if (!existingUser) {
         try {
           existingUser = await prisma.user.findFirst({
             where: {
-              provider: account.provider,
-              providerId: account.providerAccountId,
+              email: user.email,
+              provider: signInProvider,
             },
           })
           if (existingUser) {
-            console.log('[SignIn] ✓ 找到已存在用户 (provider):', existingUser.userId)
+            console.log('[SignIn] ✓ 找到已存在用户 (email + provider):', existingUser.userId, 'Provider:', existingUser.provider)
+            
+            // 验证找到的用户的 provider 是否匹配
+            if (existingUser.provider !== signInProvider) {
+              console.error('[SignIn] ❌ 错误：找到的用户 provider 不匹配:', {
+                expected: signInProvider,
+                found: existingUser.provider,
+                userId: existingUser.userId,
+              })
+              existingUser = null // 重置
+            }
           }
         } catch (error) {
           console.error('[SignIn] 根据 provider 查找用户时出错:', error)
@@ -607,7 +870,7 @@ export const authOptions: NextAuthConfig = {
   },
   pages: {
     signIn: '/auth/signin',
-    error: '/auth/signin', // OAuth 错误时也跳转到登录页
+    error: '/auth/signin', // 错误时重定向到登录页 // OAuth 错误时也跳转到登录页
   },
   session: {
     strategy: 'jwt',

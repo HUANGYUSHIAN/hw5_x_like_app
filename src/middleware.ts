@@ -25,6 +25,17 @@ async function checkTestAuth(request: NextRequest): Promise<boolean> {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
+  // 完全跳过 OAuth callback 路由（NextAuth 需要直接处理，不能有任何拦截）
+  // 这是最优先的检查，确保 callback 路由完全不被 middleware 处理
+  // 这样可以避免丢失 authorization code（特别是当 GitHub 临时限制时）
+  if (pathname.startsWith('/api/auth/callback/')) {
+    // 添加日志以便诊断（但不在生产环境输出太多）
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Middleware] 跳过 OAuth callback 路由:', pathname)
+    }
+    return NextResponse.next()
+  }
+
   // Allow access to API routes (不需要认证检查)
   if (pathname.startsWith('/api/')) {
     return NextResponse.next()
@@ -150,13 +161,15 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api (API routes)
+     * - api (API routes，包括 /api/auth/callback/*)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - auth/signin (登录页面，不需要认证)
      * 
-     * 注意：/auth/register 需要被 middleware 检查，以验证 token.needsRegistration
+     * 注意：
+     * - /api/auth/callback/* 必须被排除，确保 OAuth callback 不被拦截
+     * - /auth/register 需要被 middleware 检查，以验证 token.needsRegistration
      */
     '/((?!api|_next/static|_next/image|favicon.ico|auth/signin).*)',
   ],

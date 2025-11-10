@@ -49,7 +49,13 @@ export default function SignInPage() {
           errorMessage = 'OAuth 登入失敗，請重試'
           break
         case 'OAuthCallback':
-          errorMessage = 'OAuth 回調失敗，請重試'
+          // 检查是否是 GitHub 速率限制问题
+          const errorDescription = params.get('error_description') || ''
+          if (errorDescription.includes('authorization code') || errorDescription.includes('callbackParameters')) {
+            errorMessage = 'GitHub OAuth 暫時被限制，請等待 15-30 分鐘後再試，或使用 Google 登入'
+          } else {
+            errorMessage = 'OAuth 回調失敗，請重試'
+          }
           break
         case 'OAuthCreateAccount':
           errorMessage = '無法創建帳戶，請重試'
@@ -58,7 +64,13 @@ export default function SignInPage() {
           errorMessage = '無法創建帳戶，請重試'
           break
         case 'Callback':
-          errorMessage = '回調錯誤，請重試'
+          // 检查是否是 GitHub 速率限制问题
+          const callbackErrorDescription = params.get('error_description') || ''
+          if (callbackErrorDescription.includes('authorization code') || callbackErrorDescription.includes('callbackParameters')) {
+            errorMessage = 'GitHub OAuth 暫時被限制，請等待 15-30 分鐘後再試，或使用 Google 登入'
+          } else {
+            errorMessage = '回調錯誤，請重試'
+          }
           break
         case 'OAuthAccountNotLinked':
           errorMessage = '此 OAuth 帳戶未與現有帳戶關聯'

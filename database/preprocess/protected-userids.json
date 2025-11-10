@@ -1,0 +1,15 @@
+{
+  "protectedUserIds": [
+    "userA",
+    "userB",
+    "userC",
+    "testuser",
+    "testuser1",
+    "testuser2",
+    "test1",
+    "test2",
+    "0kw123"
+  ],
+  "description": "填入要保留的 userID 列表。部署到 Vercel 时，除了这些 userID 之外的所有用户及其相关数据都会被删除。"
+}
+

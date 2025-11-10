@@ -17,7 +17,6 @@ import {
   Chip,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ImageUploader from '@/components/profile/ImageUploader'
 
 interface UserProfileData {
@@ -339,23 +338,50 @@ export default function EditProfilePage() {
         setNeedsUserIdSetup(false)
       }
       
-      // If userId changed, redirect to new edit page URL
-      const redirectUserId = updatedData.userId || userId || targetUserId
+      // After saving, clear session and redirect to signin page
+      // This ensures the user needs to re-login with the new userID
+      // Store old userID in localStorage temporarily in case we need to recover
+      const oldUserId = targetUserId
+      const newUserId = updatedData.userId || userId || targetUserId
       
-      // If userId changed, redirect to new edit page (not profile page)
-      // This ensures the user can continue editing if needed
-      if (redirectUserId !== targetUserId) {
-        // Wait a bit for session to update, then redirect to new edit page
-        setTimeout(() => {
-          // Force a hard reload to ensure session is updated
-          window.location.href = `/${redirectUserId}/edit`
-        }, 1500)
-      } else {
-        // If userId didn't change, redirect to profile page
-        setTimeout(() => {
-          router.push(`/${redirectUserId}`)
-        }, 1000)
+      if (typeof window !== 'undefined') {
+        // Store old userID temporarily (will be cleared on next login)
+        if (oldUserId !== newUserId) {
+          localStorage.setItem('previous-userid', oldUserId)
+        }
+        
+        // Clear all session data
+        try {
+          // Clear NextAuth session
+          const { signOut } = await import('next-auth/react')
+          await signOut({ callbackUrl: '/auth/signin', redirect: false })
+        } catch (error) {
+          console.warn('NextAuth signOut error:', error)
+        }
+        
+        // Clear test-auth-token if exists
+        try {
+          await fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+          })
+        } catch (error) {
+          console.warn('Logout API error:', error)
+        }
+        
+        // Clear localStorage session
+        try {
+          const { clearLocalSession } = await import('@/lib/local-session-storage')
+          clearLocalSession()
+        } catch (error) {
+          console.warn('Clear local session error:', error)
+        }
       }
+      
+      // Wait a bit to show success message, then redirect to signin
+      setTimeout(() => {
+        window.location.href = '/auth/signin'
+      }, 1500)
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during save.')
     } finally {
@@ -377,8 +403,8 @@ export default function EditProfilePage() {
     return (
       <Container maxWidth="md" sx={{ mt: 4 }}>
         <Alert severity="error">{error}</Alert>
-        <Button variant="contained" onClick={() => router.back()} sx={{ mt: 2 }}>
-          Go Back
+        <Button variant="contained" onClick={() => router.push('/')} sx={{ mt: 2 }}>
+          Go to Home
         </Button>
       </Container>
     )
@@ -388,8 +414,8 @@ export default function EditProfilePage() {
     return (
       <Container maxWidth="md" sx={{ mt: 4 }}>
         <Alert severity="warning">User data not found.</Alert>
-        <Button variant="contained" onClick={() => router.back()} sx={{ mt: 2 }}>
-          Go Back
+        <Button variant="contained" onClick={() => router.push('/')} sx={{ mt: 2 }}>
+          Go to Home
         </Button>
       </Container>
     )
@@ -399,27 +425,9 @@ export default function EditProfilePage() {
     <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Button
-              startIcon={<ArrowBackIcon />}
-              onClick={() => router.back()}
-              variant="outlined"
-            >
-              Back
-            </Button>
-            <Typography variant="h4" component="h1">
-              {needsUserIdSetup ? '完成註冊' : 'Edit Profile'}
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-            onClick={handleSave}
-            disabled={saving}
-            sx={{ minWidth: 120 }}
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
+          <Typography variant="h4" component="h1">
+            {needsUserIdSetup ? '完成註冊' : 'Edit Profile'}
+          </Typography>
         </Box>
 
         {needsUserIdSetup && (
@@ -546,7 +554,7 @@ export default function EditProfilePage() {
         <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Button
             variant="outlined"
-            onClick={() => router.back()}
+            onClick={() => router.push('/')}
             sx={{ mr: 2 }}
           >
             Cancel
