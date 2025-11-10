@@ -42,6 +42,20 @@ export default function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const { data: session } = useSession()
+  
+  // 调试日志：检查 session 中的 userId
+  useEffect(() => {
+    if (session?.user) {
+      console.log('[Sidebar] Session 数据:', {
+        userId: session.user.userId,
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+      })
+    } else {
+      console.log('[Sidebar] Session 为空或未加载')
+    }
+  }, [session])
   const { mode } = useThemeMode()
 
   // Fetch unread notifications count
@@ -162,7 +176,11 @@ export default function Sidebar() {
     },
     { icon: <ExploreIcon />, text: 'Explore', path: '/explore' },
     { icon: <ChatIcon />, text: 'Chat', path: '/chat' },
-    { icon: <PersonIcon />, text: 'Profile', path: session?.user?.userId ? `/${session.user.userId}` : '/profile' },
+    { 
+      icon: <PersonIcon />, 
+      text: 'Profile', 
+      path: session?.user?.userId ? `/${session.user.userId}` : '/profile',
+    },
   ]
 
   return (
@@ -273,7 +291,9 @@ export default function Sidebar() {
                     {session.user.name}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" noWrap>
-                    @{session.user.userId || 'user'}
+                    {session.user.userId 
+                      ? `@${session.user.userId}` 
+                      : '(未登入)'}
                   </Typography>
                 </Box>
               )}

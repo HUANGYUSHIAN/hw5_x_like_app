@@ -33,23 +33,31 @@ function LocalSessionProvider({ children }: { children: ReactNode }) {
           .then(data => {
             if (data && data.user) {
               // Convert API session to LocalSessionData format
-              setSession({
+              const sessionData = {
                 id: data.user.id,
                 userId: data.user.userId,
                 name: data.user.name,
                 email: data.user.email,
                 image: data.user.image,
                 token: 'cookie-token', // Placeholder
-              })
+              }
+              setSession(sessionData)
               setStatus('authenticated')
+              // 保存 userID 到 localStorage（确保持久化，即使使用 cookie 模式）
+              if (data.user.userId) {
+                localStorage.setItem('userID', data.user.userId)
+                console.log('[SessionProvider] 保存 userID 到 localStorage:', data.user.userId)
+              }
             } else {
               setSession(null)
               setStatus('unauthenticated')
+              localStorage.removeItem('userID')
             }
           })
           .catch(() => {
             setSession(null)
             setStatus('unauthenticated')
+            localStorage.removeItem('userID')
           })
       }
     }
@@ -101,6 +109,55 @@ function LocalSessionProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// 额外的 Provider 来同步 userID 到 localStorage 并处理测试登录
+function SessionSyncProvider({ children }: { children: ReactNode }) {
+  const { data: session, status } = useNextAuthSession()
+  const [customSession, setCustomSession] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  
+  useEffect(() => {
+    // 如果 NextAuth session 为空，尝试从自定义 session API 获取（用于测试登录）
+    if (status === 'unauthenticated' || !session) {
+      fetch('/api/auth/session', { credentials: 'include' })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.user) {
+            setCustomSession(data)
+            // 保存 userID 到 localStorage
+            if (data.user.userId) {
+              localStorage.setItem('userID', data.user.userId)
+              console.log('[SessionSyncProvider] 从自定义 API 获取 session，保存 userID:', data.user.userId)
+            }
+          } else {
+            setCustomSession(null)
+            localStorage.removeItem('userID')
+          }
+        })
+        .catch(() => {
+          setCustomSession(null)
+          // 如果 API 调用失败，尝试从 localStorage 恢复 userID（用于测试登录）
+          const savedUserId = localStorage.getItem('userID')
+          if (savedUserId) {
+            console.log('[SessionSyncProvider] API 调用失败，保留 localStorage 中的 userID:', savedUserId)
+          }
+        })
+        .finally(() => {
+          setLoading(false)
+        })
+    } else {
+      setCustomSession(null)
+      setLoading(false)
+      // 保存 userID 到 localStorage
+      if (session?.user?.userId) {
+        localStorage.setItem('userID', session.user.userId)
+        console.log('[SessionSyncProvider] 从 NextAuth session 保存 userID:', session.user.userId)
+      }
+    }
+  }, [status, session])
+  
+  return <>{children}</>
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   // Check if we should use localStorage mode (only on client side)
   // On server side, always use NextAuthSessionProvider
@@ -109,12 +166,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return <LocalSessionProvider>{children}</LocalSessionProvider>
   }
   // Use NextAuth SessionProvider with refetchInterval to auto-refresh session
+  // 但是我们需要自定义 useSession hook 来同时支持 test-auth-token
   return (
     <NextAuthSessionProvider
       refetchInterval={5 * 60} // Refetch session every 5 minutes
       refetchOnWindowFocus={true} // Refetch when window gains focus
     >
-      {children}
+      <SessionSyncProvider>{children}</SessionSyncProvider>
     </NextAuthSessionProvider>
   )
 }
@@ -124,9 +182,94 @@ export function useSession() {
   // Check if we should use localStorage mode (only on client side)
   if (typeof window !== 'undefined' && shouldUseLocalStorage()) {
     const context = useContext(LocalSessionContext)
-    return context || { data: null, status: 'loading' }
+    const result = context || { data: null, status: 'loading' }
+    // 保存 userID 到 localStorage
+    if (result.data?.user?.userId) {
+      localStorage.setItem('userID', result.data.user.userId)
+    }
+    return result
   }
-  return useNextAuthSession()
+  
+  // For OAuth and test login, use NextAuth session but also check our custom session API
+  const nextAuthSession = useNextAuthSession()
+  const [customSession, setCustomSession] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  
+  useEffect(() => {
+    // 只有在 NextAuth session 明确为 unauthenticated 时，才尝试从自定义 session API 获取（用于测试登录）
+    // 如果 status 是 'loading'，等待 NextAuth 完成加载
+    if (nextAuthSession.status === 'loading') {
+      setLoading(true)
+      return
+    }
+    
+    // NextAuth session 存在且已认证，优先使用
+    if (nextAuthSession.status === 'authenticated' && nextAuthSession.data) {
+      setCustomSession(null)
+      setLoading(false)
+      // 保存 userID 到 localStorage
+      if (nextAuthSession.data?.user?.userId) {
+        localStorage.setItem('userID', nextAuthSession.data.user.userId)
+        console.log('[useSession] 从 NextAuth session 保存 userID:', nextAuthSession.data.user.userId)
+      }
+      return
+    }
+    
+    // 只有在明确 unauthenticated 时，才尝试自定义 session API（测试登录）
+    if (nextAuthSession.status === 'unauthenticated') {
+      fetch('/api/auth/session', { credentials: 'include' })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.user) {
+            setCustomSession(data)
+            // 保存 userID 到 localStorage
+            if (data.user.userId) {
+              localStorage.setItem('userID', data.user.userId)
+              console.log('[useSession] 从自定义 API 获取 session（测试登录），保存 userID:', data.user.userId)
+            }
+          } else {
+            setCustomSession(null)
+            localStorage.removeItem('userID')
+          }
+        })
+        .catch(() => {
+          setCustomSession(null)
+          // 如果 API 调用失败，尝试从 localStorage 恢复 userID（用于测试登录）
+          const savedUserId = localStorage.getItem('userID')
+          if (savedUserId) {
+            console.log('[useSession] API 调用失败，保留 localStorage 中的 userID:', savedUserId)
+          }
+        })
+        .finally(() => {
+          setLoading(false)
+        })
+    } else {
+      // 其他状态，清除自定义 session
+      setCustomSession(null)
+      setLoading(false)
+    }
+  }, [nextAuthSession.status, nextAuthSession.data])
+  
+  // 优先使用 NextAuth session（OAuth 登录）
+  if (nextAuthSession.status === 'authenticated' && nextAuthSession.data) {
+    return nextAuthSession
+  }
+  
+  // 如果 NextAuth 还在加载，返回 loading 状态
+  if (nextAuthSession.status === 'loading' || loading) {
+    return { data: null, status: 'loading' as const }
+  }
+  
+  // 只有在 NextAuth 明确 unauthenticated 时，才使用自定义 session（测试登录）
+  if (nextAuthSession.status === 'unauthenticated' && customSession) {
+    return {
+      data: customSession,
+      status: 'authenticated' as const,
+    }
+  }
+  
+  // 默认返回 unauthenticated
+  return { data: null, status: 'unauthenticated' as const }
 }
 
 

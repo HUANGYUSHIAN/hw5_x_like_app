@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       // Continue without session - allow viewing posts without auth
     }
 
-    let followingIds: string[] | undefined = undefined
+    let followingIds: string[] = []
     let userIdsToShow: string[] | undefined = undefined
 
     if (currentUserId) {
@@ -33,28 +33,14 @@ export async function GET(request: NextRequest) {
       // So to get users that current user is following, we need: where followerId = currentUserId
       // This will return records where currentUserId is the follower, and we get the followingId (the users being followed)
       try {
-        // First, let's also check what records exist in the database for debugging
-        const allFollows = await prisma.follow.findMany({
-          select: { followerId: true, followingId: true },
-        })
-        console.log(`[Posts API] All follow records in DB:`, allFollows)
-        
         const following = await prisma.follow.findMany({
           where: { followerId: currentUserId },
-          select: { followingId: true, followerId: true },
+          select: { followingId: true },
         })
         followingIds = following.map(f => f.followingId)
         
         console.log(`[Posts API] Current user ${currentUserId} is following:`, followingIds)
         console.log(`[Posts API] Found ${following.length} follow relationships`)
-        console.log(`[Posts API] Raw follow records:`, following)
-        
-        // Also check reverse: who is following current user (for debugging)
-        const followers = await prisma.follow.findMany({
-          where: { followingId: currentUserId },
-          select: { followerId: true },
-        })
-        console.log(`[Posts API] Users following current user ${currentUserId}:`, followers.map(f => f.followerId))
         
         if (filter === 'all') {
           // All mode: show current user's posts/reposts + following users' posts/reposts
@@ -86,19 +72,23 @@ export async function GET(request: NextRequest) {
         // In all mode, if error, just show current user's posts
         if (filter === 'all' && currentUserId) {
           userIdsToShow = [currentUserId]
+          console.log(`[Posts API] All mode - error fetching following, showing only current user's posts:`, userIdsToShow)
         }
       }
-    } else if (filter === 'all') {
-      // No session, show all posts
-      userIdsToShow = undefined
-      console.log(`[Posts API] No session - showing all posts`)
     } else {
-      // No session and following filter - return empty
-      console.log(`[Posts API] No session and following filter - returning empty`)
-      return NextResponse.json({
-        items: [],
-        nextCursor: null,
-      })
+      // No session
+      if (filter === 'all') {
+        // No session and all filter - show all posts (for unauthenticated users)
+        userIdsToShow = undefined
+        console.log(`[Posts API] No session - showing all posts`)
+      } else {
+        // No session and following filter - return empty
+        console.log(`[Posts API] No session and following filter - returning empty`)
+        return NextResponse.json({
+          items: [],
+          nextCursor: null,
+        })
+      }
     }
 
     let postsWhere: any = {}

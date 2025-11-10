@@ -105,13 +105,13 @@ export default function SignInPage() {
     setLoading(provider)
     setError(null)
     try {
-      // OAuth 登录/注册流程：
+      // OAuth 登录流程：
       // 1. 用户点击按钮 → 跳转到 OAuth 提供商（Google/GitHub）选择账号
-      // 2. OAuth 回调 → NextAuth 处理，检查用户是否已注册
-      // 3. 如果新用户 → middleware 会重定向到 /auth/register（要求输入 userID）
+      // 2. OAuth 回调 → NextAuth 处理，检查用户是否已存在
+      // 3. 如果新用户 → 自动生成临时 userID 并创建账户，重定向到 /{userId}/edit 设置正式 userID
       // 4. 如果已注册用户 → 直接登录，跳转到首页
       await signIn(provider, { 
-        callbackUrl: '/', // 回调 URL，但 middleware 会根据 needsRegistration 决定最终跳转
+        callbackUrl: '/', // 回调 URL，但 middleware 会根据 needsUserIdSetup 决定最终跳转
         redirect: true // 使用 redirect: true 让 NextAuth 处理重定向到 OAuth 提供商
       })
       
@@ -180,13 +180,13 @@ export default function SignInPage() {
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
         <Paper sx={{ p: 4, width: '100%' }}>
           <Typography variant="h5" gutterBottom align="center">
-            登入 / 註冊
+            登入
           </Typography>
           <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 3 }}>
-            選擇 OAuth 提供者（Google 或 GitHub）進行登入或註冊
+            選擇 OAuth 提供者（Google 或 GitHub）進行登入
             <br />
             <Typography component="span" variant="caption" color="text.secondary">
-              新用戶將需要輸入 User ID 完成註冊
+              新用戶將自動創建帳戶並可設置 User ID
             </Typography>
           </Typography>
 

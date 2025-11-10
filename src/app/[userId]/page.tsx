@@ -84,6 +84,9 @@ export default function UserProfilePage() {
 
   const fetchUser = async () => {
     try {
+      console.log('[Profile] 获取用户数据，userId:', userId)
+      console.log('[Profile] 当前 session:', session)
+      
       // Use authenticated fetch if in localStorage mode
       const { shouldUseLocalStorage, getLocalSession } = await import('@/lib/local-session-storage')
       let headers: HeadersInit = {}
@@ -98,12 +101,22 @@ export default function UserProfilePage() {
       }
       
       const response = await fetch(`/api/users/${userId}`, { headers, credentials: 'include' })
+      console.log('[Profile] API 响应状态:', response.status)
+      
       if (response.ok) {
         const data = await response.json()
+        console.log('[Profile] 用户数据获取成功:', data)
         setUser(data)
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error('[Profile] 获取用户数据失败:', response.status, errorData)
+        // 如果用户不存在，显示错误
+        if (response.status === 404) {
+          setUser(null)
+        }
       }
     } catch (error) {
-      console.error('Fetch user error:', error)
+      console.error('[Profile] Fetch user error:', error)
     } finally {
       setLoading(false)
     }

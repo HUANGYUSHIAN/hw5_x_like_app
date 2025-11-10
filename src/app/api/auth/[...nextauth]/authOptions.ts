@@ -174,14 +174,22 @@ export const authOptions: NextAuthConfig = {
   trustHost: true,
   callbacks: {
     async session({ session, token }) {
+      // ========== Session Callback 调试日志 ==========
+      console.log('[Session Callback] ========== Session Callback 被调用 ==========')
+      console.log('[Session Callback] Token:', {
+        sub: token.sub,
+        userId: token.userId,
+        email: token.email,
+        needsUserIdSetup: token.needsUserIdSetup,
+      })
+      console.log('[Session Callback] 初始 Session:', {
+        user: session.user,
+        needsUserIdSetup: session.needsUserIdSetup,
+      })
+      
       try {
-        // If user needs registration (OAuth info but no user created), set flag
-        if (token.needsRegistration) {
-          session.needsRegistration = true
-          session.provider = token.provider as string
-          session.providerId = token.providerId as string
-          return session
-        }
+        // 注意：needsRegistration 已不再使用，新用户会自动创建
+        // 如果 token 有 needsUserIdSetup，说明用户有临时 ID，需要设置正式 ID
         
         // User is registered, populate session with user data
         if (session.user && token.sub) {
@@ -197,8 +205,8 @@ export const authOptions: NextAuthConfig = {
                 // 确保 session 始终包含 userID
                 if (!dbUser.userId || dbUser.userId.trim() === '') {
                   console.error('[Session] ❌ 错误：数据库中的用户没有 userID，ID:', token.sub)
-                  session.needsRegistration = true
-                  session.needsUserIdSetup = false
+                  // 这种情况不应该发生，但如果发生了，标记为需要设置 userID
+                  session.needsUserIdSetup = true
                   return session
                 }
                 
@@ -209,44 +217,72 @@ export const authOptions: NextAuthConfig = {
                 } else if (session.user.email) {
                   // Keep existing email if dbUser doesn't have one
                 }
-                session.needsRegistration = false
-                session.needsUserIdSetup = false
+                session.needsUserIdSetup = token.needsUserIdSetup || false
                 session.loginIdentifier = token.loginIdentifier || dbUser.email || dbUser.userId
+                
+                // 调试日志：确认 session 中的 userID
+                console.log('[Session Callback] ✓ 用户数据已设置:', {
+                  userId: session.user.userId,
+                  id: session.user.id,
+                  email: session.user.email,
+                  name: session.user.name,
+                })
                 
                 // 如果 userID 已更改，更新 session（用户可能在编辑页面更改了 ID）
                 if (token.userId && token.userId !== dbUser.userId) {
-                  console.log('[Session] 检测到 userID 更改，更新 session:', {
+                  console.log('[Session Callback] 检测到 userID 更改，更新 session:', {
                     oldUserId: token.userId,
                     newUserId: dbUser.userId,
                   })
                   session.user.userId = dbUser.userId
                   session.loginIdentifier = dbUser.email || dbUser.userId
                 }
+                
+                // 最终确认：确保 session.user.userId 已设置
+                console.log('[Session Callback] ✓ 最终 Session 对象:', {
+                  'session.user.userId': session.user.userId,
+                  'session.user.id': session.user.id,
+                  'session.user.email': session.user.email,
+                  'session.user.name': session.user.name,
+                })
               } else {
                 // User not found in database
-                console.error('[Session] ❌ 错误：找不到用户，ID:', token.sub)
-                session.needsRegistration = true
-                session.needsUserIdSetup = false
+                console.error('[Session Callback] ❌ 错误：找不到用户，ID:', token.sub)
+                // 这种情况不应该发生，因为用户应该在 JWT callback 中已创建
+                // 但为了安全，清除 session
+                session.user = null as any
               }
             } catch (error) {
-              console.error('Session callback error:', error)
-              // If query fails, mark as needing registration
-              session.needsRegistration = true
-              session.needsUserIdSetup = false
+              console.error('[Session Callback] 数据库查询错误:', error)
+              // If query fails, clear session
+              session.user = null as any
             }
           } else {
             // Invalid ObjectID format
-            console.warn('Invalid token.sub format in session callback:', token.sub)
-            session.needsRegistration = true
-            session.needsUserIdSetup = false
+            console.warn('[Session Callback] ❌ 无效的 token.sub 格式:', token.sub)
+            // 清除 session
+            session.user = null as any
           }
+        } else {
+          console.warn('[Session Callback] ⚠️  session.user 或 token.sub 不存在:', {
+            hasSessionUser: !!session.user,
+            hasTokenSub: !!token.sub,
+          })
         }
       } catch (error) {
-        console.error('Session callback error:', error)
-        // On any error, mark as needing registration to be safe
-        session.needsRegistration = true
-        session.needsUserIdSetup = false
+        console.error('[Session Callback] ❌ 未捕获的错误:', error)
+        // On any error, clear session
+        session.user = null as any
       }
+      
+      console.log('[Session Callback] ========== 返回 Session ==========')
+      console.log('[Session Callback] 最终 Session:', {
+        'session.user.userId': session.user?.userId,
+        'session.user.id': session.user?.id,
+        'session.user.email': session.user?.email,
+        'session.needsUserIdSetup': session.needsUserIdSetup,
+      })
+      
       return session
     },
     async jwt({ token, user, account }) {
@@ -298,52 +334,128 @@ export const authOptions: NextAuthConfig = {
         }
         
         if (dbUser) {
-          // ========== 已存在用户：验证 session 是否有 userID ==========
+          // ========== 已存在用户：检查是否有 userID ==========
           if (!dbUser.userId || dbUser.userId.trim() === '') {
-            console.error('[OAuth] ❌ 错误：数据库中的用户没有 userID')
-            throw new Error('用户数据错误：缺少 userID。请联系管理员。')
+            // 用户存在但没有 userID，自动生成临时 userID
+            console.log('[OAuth] ⚠️ 用户存在但没有 userID，自动生成临时 userID')
+            console.log('[OAuth] Email:', dbUser.email)
+            console.log('[OAuth] User ID (MongoDB):', dbUser.id)
+            
+            try {
+              // 生成唯一的临时 userID（20 个字符，数字+英文字母）
+              const { generateUniqueUserId } = await import('@/lib/generate-userid')
+              const tempUserId = await generateUniqueUserId()
+              console.log('[OAuth] 生成临时 userID:', tempUserId)
+              
+              // 更新用户记录，设置临时 userID
+              const updatedUser = await prisma.user.update({
+                where: { id: dbUser.id },
+                data: {
+                  userId: tempUserId,
+                  // 更新 OAuth 信息（如果数据库中的信息不完整）
+                  name: dbUser.name || user.name || 'User',
+                  email: dbUser.email || user.email,
+                  avatarUrl: dbUser.avatarUrl || user.image || null,
+                  provider: dbUser.provider || account.provider,
+                  providerId: dbUser.providerId || account.providerAccountId,
+                },
+              })
+              
+              console.log('[OAuth] ✓ 用户已更新，设置临时 userID:', {
+                id: updatedUser.id,
+                userId: updatedUser.userId,
+                email: updatedUser.email,
+              })
+              
+              // 设置 token，标记用户需要设置正式 userID
+              token.sub = updatedUser.id // MongoDB ObjectID
+              token.userId = updatedUser.userId // 临时 userID
+              token.email = updatedUser.email || undefined
+              token.name = updatedUser.name
+              token.image = updatedUser.avatarUrl || undefined
+              token.provider = updatedUser.provider
+              token.providerId = updatedUser.providerId
+              token.needsUserIdSetup = true // 标记需要设置正式 userID
+              token.loginIdentifier = updatedUser.email || updatedUser.userId
+              
+              console.log('[OAuth] Token 已设置，用户将被重定向到 /{userId}/edit 页面')
+              console.log('[OAuth] 临时 userID:', tempUserId)
+            } catch (error: any) {
+              console.error('[OAuth] ❌ 更新用户失败:', error)
+              // 如果更新失败，抛出错误，阻止登录
+              throw new Error(`更新用户失败: ${error.message}`)
+            }
+          } else {
+            // 用户存在且有 userID，正常登录
+            // Existing user - set token.sub to MongoDB ObjectID
+            token.sub = dbUser.id
+            token.userId = dbUser.userId
+            token.email = dbUser.email || user.email || undefined
+            // 记录登录标识：优先使用 email，如果没有则使用 userId
+            token.loginIdentifier = dbUser.email || dbUser.userId
+            token.needsUserIdSetup = false
+            console.log('[OAuth] ✓ 登录成功 - 已存在用户:', {
+              userId: dbUser.userId,
+              email: dbUser.email,
+              tokenSub: token.sub,
+            })
+            console.log('[OAuth] Token 已设置，NextAuth 将写入 cookie:', {
+              cookieName: process.env.NODE_ENV === 'production' 
+                ? '__Secure-next-auth.session-token' 
+                : 'next-auth.session-token',
+              hasTokenSub: !!token.sub,
+              hasTokenUserId: !!token.userId,
+              note: '如果 cookie 未设置，请检查：1) HTTPS 是否启用 2) NEXTAUTH_SECRET 是否正确 3) trustHost 是否为 true',
+            })
           }
-          
-          // Existing user - set token.sub to MongoDB ObjectID
-          token.sub = dbUser.id
-          token.userId = dbUser.userId
-          token.email = dbUser.email || user.email || undefined
-          // 记录登录标识：优先使用 email，如果没有则使用 userId
-          token.loginIdentifier = dbUser.email || dbUser.userId
-          token.needsUserIdSetup = false
-          token.needsRegistration = false
-          console.log('[OAuth] ✓ 登录成功 - 已存在用户:', {
-            userId: dbUser.userId,
-            email: dbUser.email,
-            tokenSub: token.sub,
-          })
-          console.log('[OAuth] Token 已设置，NextAuth 将写入 cookie:', {
-            cookieName: process.env.NODE_ENV === 'production' 
-              ? '__Secure-next-auth.session-token' 
-              : 'next-auth.session-token',
-            hasTokenSub: !!token.sub,
-            hasTokenUserId: !!token.userId,
-            note: '如果 cookie 未设置，请检查：1) HTTPS 是否启用 2) NEXTAUTH_SECRET 是否正确 3) trustHost 是否为 true',
-          })
         } else {
-          // ========== 新用户：需要注册 ==========
-          console.log('[OAuth] ✗ 新用户，需要注册')
+          // ========== 新用户：自动生成临时 ID 并创建用户 ==========
+          console.log('[OAuth] ✗ 新用户，自动创建账户')
           console.log('[OAuth] Email:', user.email)
           console.log('[OAuth] 数据库中未找到该 email 对应的用户')
           
-          // 存储 OAuth 信息，等待用户输入 userId 完成注册
-          // 不允许自动创建用户，必须通过 /register 页面完成注册
-          token.provider = account.provider
-          token.providerId = account.providerAccountId
-          token.email = user.email // email 是必需的，用于后续注册
-          token.name = user.name || undefined
-          token.image = user.image || undefined
-          token.needsRegistration = true
-          token.needsUserIdSetup = false
-          // 不设置 token.sub，因为用户还未创建
-          delete token.sub
-          console.log('[OAuth] 等待用户注册，OAuth 信息已保存到 token')
-          console.log('[OAuth] 用户将被重定向到 /auth/register 页面')
+          try {
+            // 生成唯一的临时 userID（20 个字符，数字+英文字母）
+            const { generateUniqueUserId } = await import('@/lib/generate-userid')
+            const tempUserId = await generateUniqueUserId()
+            console.log('[OAuth] 生成临时 userID:', tempUserId)
+            
+            // 创建用户记录（包含 OAuth 信息和临时 userID）
+            const newUser = await prisma.user.create({
+              data: {
+                userId: tempUserId,
+                name: user.name || 'User',
+                email: user.email, // email 是必需的
+                avatarUrl: user.image || null,
+                provider: account.provider,
+                providerId: account.providerAccountId,
+              },
+            })
+            
+            console.log('[OAuth] ✓ 用户已创建:', {
+              id: newUser.id,
+              userId: newUser.userId,
+              email: newUser.email,
+            })
+            
+            // 设置 token，标记用户需要设置正式 userID
+            token.sub = newUser.id // MongoDB ObjectID
+            token.userId = newUser.userId // 临时 userID
+            token.email = newUser.email || undefined
+            token.name = newUser.name
+            token.image = newUser.avatarUrl || undefined
+            token.provider = account.provider
+            token.providerId = account.providerAccountId
+            token.needsUserIdSetup = true // 标记需要设置正式 userID
+            token.loginIdentifier = newUser.email || newUser.userId
+            
+            console.log('[OAuth] Token 已设置，用户将被重定向到 /{userId}/edit 页面')
+            console.log('[OAuth] 临时 userID:', tempUserId)
+          } catch (error: any) {
+            console.error('[OAuth] ❌ 创建用户失败:', error)
+            // 如果创建失败，抛出错误，阻止登录
+            throw new Error(`创建用户失败: ${error.message}`)
+          }
         }
       } else if (token.sub) {
         // Subsequent requests - validate token.sub is MongoDB ObjectID format
@@ -360,8 +472,17 @@ export const authOptions: NextAuthConfig = {
               if (!dbUser.userId || dbUser.userId.trim() === '') {
                 console.error('[JWT] ❌ 错误：数据库中的用户没有 userID，ID:', token.sub)
                 delete token.sub
-                token.needsRegistration = true
+                token.needsUserIdSetup = true
                 return token
+              }
+              
+              // 如果 userID 已更改，更新 token（用户可能在编辑页面更改了 ID）
+              // 注意：这个检查应该在设置 token.userId 之前进行
+              if (token.userId && token.userId !== dbUser.userId) {
+                console.log('[JWT] 检测到 userID 更改，更新 token:', {
+                  oldUserId: token.userId,
+                  newUserId: dbUser.userId,
+                })
               }
               
               token.userId = dbUser.userId
@@ -369,34 +490,23 @@ export const authOptions: NextAuthConfig = {
               // 记录登录标识：优先使用 email，如果没有则使用 userId
               token.loginIdentifier = dbUser.email || dbUser.userId
               token.needsUserIdSetup = false
-              token.needsRegistration = false
-              
-              // 如果 userID 已更改，更新 token（用户可能在编辑页面更改了 ID）
-              if (token.userId !== dbUser.userId) {
-                console.log('[JWT] 检测到 userID 更改，更新 token:', {
-                  oldUserId: token.userId,
-                  newUserId: dbUser.userId,
-                })
-                token.userId = dbUser.userId
-                token.loginIdentifier = dbUser.email || dbUser.userId
-              }
             } else {
               // User not found - clear token
               console.error('[JWT] ❌ 错误：找不到用户，ID:', token.sub)
               delete token.sub
-              token.needsRegistration = true
+              token.needsUserIdSetup = true
             }
           } catch (error) {
-            console.error('JWT callback error:', error)
+            console.error('[JWT] JWT callback error:', error)
             // If query fails, clear token.sub to force re-authentication
             delete token.sub
-            token.needsRegistration = true
+            token.needsUserIdSetup = true
           }
         } else {
           // Invalid ObjectID format - clear token.sub
-          console.warn('Invalid token.sub format in JWT callback:', token.sub)
+          console.warn('[JWT] Invalid token.sub format in JWT callback:', token.sub)
           delete token.sub
-          token.needsRegistration = true
+          token.needsUserIdSetup = true
         }
       }
       return token
@@ -472,19 +582,26 @@ export const authOptions: NextAuthConfig = {
     async redirect({ url, baseUrl }) {
       console.log('[Redirect] Redirect callback called:', { url, baseUrl })
       
+      // 注意：redirect callback 在 JWT callback 之后执行
+      // 新用户现在会在 JWT callback 中自动创建，并设置 needsUserIdSetup = true
+      // Middleware 会检查 needsUserIdSetup 并重定向到 /{userId}/edit
+      
       // 如果 URL 是相对路径，使用 baseUrl
       if (url.startsWith('/')) {
         const redirectUrl = `${baseUrl}${url}`
         console.log('[Redirect] Redirecting to:', redirectUrl)
+        console.log('[Redirect] Note: Middleware will check needsUserIdSetup and redirect to /{userId}/edit if needed')
         return redirectUrl
       }
       // 如果 URL 是同一个域名，允许重定向
       if (new URL(url).origin === baseUrl) {
         console.log('[Redirect] Redirecting to same origin:', url)
+        console.log('[Redirect] Note: Middleware will check needsUserIdSetup and redirect to /{userId}/edit if needed')
         return url
       }
       // 否则重定向到首页
       console.log('[Redirect] Redirecting to baseUrl:', baseUrl)
+      console.log('[Redirect] Note: Middleware will check needsUserIdSetup and redirect to /{userId}/edit if needed')
       return baseUrl
     },
   },

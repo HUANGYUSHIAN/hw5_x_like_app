@@ -10,7 +10,6 @@ declare module 'next-auth' {
       email?: string | null
       image?: string | null
     }
-    needsRegistration?: boolean
     needsUserIdSetup?: boolean
     provider?: string
     providerId?: string
@@ -24,7 +23,6 @@ declare module 'next-auth/jwt' {
   interface JWT {
     sub?: string
     userId?: string
-    needsRegistration?: boolean
     needsUserIdSetup?: boolean
     provider?: string
     providerId?: string

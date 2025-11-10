@@ -25,10 +25,18 @@ async function checkTestAuth(request: NextRequest): Promise<boolean> {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
-  // Allow access to auth pages and API routes
-  if (pathname.startsWith('/auth/') || pathname.startsWith('/api/')) {
+  // Allow access to API routes (不需要认证检查)
+  if (pathname.startsWith('/api/')) {
     return NextResponse.next()
   }
+  
+  // /auth/signin 允许访问（不需要认证）
+  if (pathname === '/auth/signin') {
+    return NextResponse.next()
+  }
+  
+  // /auth/register 需要检查 token.needsRegistration，所以不能跳过 middleware
+  // 如果用户需要注册，允许访问；如果已注册，重定向到首页
 
   // First, check for test-auth-token (backdoor for test login)
   // 测试登录使用独立的 test-auth-token，与 OAuth 登录分离
@@ -93,7 +101,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // If not authenticated, redirect to login
+  // 但如果是 /auth/register 且没有 token，可能是 OAuth 回调后 cookie 还没设置，允许访问
   if (!token) {
+    // 如果是注册页面，允许访问（OAuth 回调后可能需要一点时间设置 cookie）
+    if (pathname === '/auth/register') {
+      console.log('[Middleware] No token found but on /auth/register, allowing access (OAuth callback may be in progress)')
+      return NextResponse.next()
+    }
     console.log('[Middleware] No token found, redirecting to /auth/signin', {
       pathname,
       cookies: cookies.map(c => ({ name: c.name, hasValue: !!c.value })),
@@ -103,6 +117,13 @@ export async function middleware(request: NextRequest) {
 
   // If user needs registration (OAuth info but no user created), redirect to registration page
   if (token.needsRegistration) {
+    console.log('[Middleware] User needs registration, redirecting to /auth/register', {
+      pathname,
+      hasToken: !!token,
+      needsRegistration: token.needsRegistration,
+      email: token.email,
+      provider: token.provider,
+    })
     if (pathname !== '/auth/register' && !pathname.startsWith('/api/auth/register')) {
       return NextResponse.redirect(new URL('/auth/register', request.url))
     }
@@ -112,15 +133,14 @@ export async function middleware(request: NextRequest) {
   // If user needs to set userId (has temporary userId), redirect to profile edit
   if (token.needsUserIdSetup && token.userId) {
     const editPath = `/${token.userId}/edit`
+    console.log('[Middleware] User needs to set userId, redirecting to:', editPath, {
+      userId: token.userId,
+      pathname,
+    })
     if (pathname !== editPath && !pathname.startsWith('/api/')) {
       return NextResponse.redirect(new URL(editPath, request.url))
     }
     return NextResponse.next()
-  }
-
-  // If user is registered but on registration page, redirect to home
-  if (!token.needsRegistration && pathname === '/auth/register') {
-    return NextResponse.redirect(new URL('/', request.url))
   }
 
   return NextResponse.next()
@@ -134,9 +154,11 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - auth (auth pages)
+     * - auth/signin (登录页面，不需要认证)
+     * 
+     * 注意：/auth/register 需要被 middleware 检查，以验证 token.needsRegistration
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|auth).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|auth/signin).*)',
   ],
 }
 

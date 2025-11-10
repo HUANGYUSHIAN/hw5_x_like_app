@@ -64,7 +64,24 @@ export default function EditProfilePage() {
 
     const fetchUserProfile = async () => {
       try {
-        const response = await fetch(`/api/users/${targetUserId}`)
+        // 优先使用 session 中的 userId 来获取数据，因为 userId 可能刚被修改
+        // 如果 targetUserId 与 session.user.userId 不匹配，可能是：
+        // 1. 用户正在修改 ID（targetUserId 是旧的，session.user.userId 是新的）
+        // 2. URL 中的 userId 是新的，但 session 还没更新
+        // 3. URL 中的 userId 是旧的，但用户已经修改了 ID
+        
+        // 首先尝试使用 targetUserId 获取数据
+        let response = await fetch(`/api/users/${targetUserId}`)
+        
+        // 如果 404 且 targetUserId 与 session.user.userId 不匹配，尝试使用 session.user.userId
+        if (!response.ok && response.status === 404 && session.user.userId && targetUserId !== session.user.userId) {
+          console.log('[Edit Profile] targetUserId not found, trying session.user.userId:', {
+            targetUserId,
+            sessionUserId: session.user.userId,
+          })
+          response = await fetch(`/api/users/${session.user.userId}`)
+        }
+        
         if (!response.ok) {
           if (response.status === 404) {
             setError('User not found')
@@ -98,6 +115,17 @@ export default function EditProfilePage() {
           return
         }
         
+        // 如果获取到的 userId 与 targetUserId 不匹配，说明用户已经修改了 ID
+        // 应该重定向到新的 edit 页面
+        if (data.userId !== targetUserId) {
+          console.log('[Edit Profile] User ID mismatch, redirecting to new edit page:', {
+            targetUserId,
+            actualUserId: data.userId,
+          })
+          router.replace(`/${data.userId}/edit`)
+          return
+        }
+        
         setUser(data)
         setUserId(data.userId || '')
         setName(data.name || '')
@@ -106,8 +134,11 @@ export default function EditProfilePage() {
         setAvatarUrl(data.avatarUrl || '')
         setBackgroundUrl(data.backgroundUrl || '')
         
-        // Check if userId is temporary (needs setup)
-        const isTempUserId = data.userId && data.userId.startsWith('temp_')
+        // Check if userId needs setup (temporary ID from OAuth)
+        // 临时 ID 是 20 个字符的随机字符串（数字+英文字母）
+        // 我们通过 session.needsUserIdSetup 来判断，而不是检查 userID 格式
+        // 但为了兼容，如果 userID 以 temp_ 开头，也标记为需要设置
+        const isTempUserId = data.userId && (data.userId.startsWith('temp_') || data.userId.length === 20)
         setNeedsUserIdSetup(isTempUserId || false)
       } catch (err: any) {
         setError(err.message || 'An unexpected error occurred.')
@@ -308,13 +339,23 @@ export default function EditProfilePage() {
         setNeedsUserIdSetup(false)
       }
       
-      // If userId changed, redirect to new profile URL
+      // If userId changed, redirect to new edit page URL
       const redirectUserId = updatedData.userId || userId || targetUserId
       
-      // Redirect to profile page after a short delay
-      setTimeout(() => {
-        router.push(`/${redirectUserId}`)
-      }, 1000)
+      // If userId changed, redirect to new edit page (not profile page)
+      // This ensures the user can continue editing if needed
+      if (redirectUserId !== targetUserId) {
+        // Wait a bit for session to update, then redirect to new edit page
+        setTimeout(() => {
+          // Force a hard reload to ensure session is updated
+          window.location.href = `/${redirectUserId}/edit`
+        }, 1500)
+      } else {
+        // If userId didn't change, redirect to profile page
+        setTimeout(() => {
+          router.push(`/${redirectUserId}`)
+        }, 1000)
+      }
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during save.')
     } finally {

@@ -58,9 +58,13 @@ export async function getSession(request?: NextRequest) {
 
   // Otherwise, use NextAuth
   try {
+    // 明确指定 cookie 名称，确保能正确读取 OAuth session
     const token = await getToken({
       req: request,
       secret: process.env.NEXTAUTH_SECRET,
+      cookieName: process.env.NODE_ENV === 'production' 
+        ? '__Secure-next-auth.session-token' 
+        : 'next-auth.session-token',
     })
 
     if (!token || !token.sub) {
@@ -70,7 +74,7 @@ export async function getSession(request?: NextRequest) {
     // Validate token.sub is a valid MongoDB ObjectID (24 hex characters)
     const objectIdRegex = /^[0-9a-fA-F]{24}$/
     if (!objectIdRegex.test(token.sub)) {
-      console.warn('Invalid token.sub format in getSession:', token.sub)
+      console.warn('[getSession] Invalid token.sub format:', token.sub)
       return null
     }
 
@@ -80,6 +84,13 @@ export async function getSession(request?: NextRequest) {
     })
 
     if (!dbUser) {
+      console.warn('[getSession] User not found in database:', token.sub)
+      return null
+    }
+
+    // 确保 userID 存在
+    if (!dbUser.userId || dbUser.userId.trim() === '') {
+      console.error('[getSession] User missing userId:', token.sub)
       return null
     }
 
@@ -94,7 +105,7 @@ export async function getSession(request?: NextRequest) {
       expires: token.exp ? new Date(token.exp * 1000).toISOString() : undefined,
     }
   } catch (error) {
-    console.error('getSession error:', error)
+    console.error('[getSession] Error:', error)
     return null
   }
 }

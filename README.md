@@ -1,185 +1,239 @@
-# X-like App
+# 測試文檔
 
-一個模仿 X (Twitter) 的社群平台，使用 Next.js 16、Prisma、MongoDB、NextAuth 和 Pusher 建構。
+本資料夾包含 X-like App 的所有測試腳本與文檔。
 
-## 功能特色
+## 測試網址
 
-- ✅ OAuth 認證（Google/GitHub/Facebook）與本地開發模式
-- ✅ 發文功能（280 字元限制，支援 URL/hashtag/mention）
-- ✅ Home Feed（All/Following）與 Cursor-based 分頁
-- ✅ 個人頁面（編輯/查看）、追蹤/取消追蹤
-- ✅ 轉發 (Repost)、按讚 (Like)、留言 (Comments)
-- ✅ 草稿保存與管理
-- ✅ Pusher 即時更新（讚數、留言、轉發）
+https://xlikeapp.vercel.app
 
-## 技術棧
+目前新用戶的OAuth在某些使用者底下會有redirect的問題，與權限設定或防火牆有關，提供走後門的測試用選項
 
-- **Frontend**: Next.js 16 (App Router), React 19, Material UI
-- **Backend**: Next.js API Routes
-- **Database**: MongoDB Atlas (via Prisma)
-- **ORM**: Prisma
-- **Authentication**: NextAuth.js v5
-- **Real-time**: Pusher
-- **Testing**: Playwright (E2E), Vitest (Unit)
+## 測試用帳號資訊
 
-## 快速開始
+| Option | ID         | Name       |
+|--------|------------|------------|
+| 1      | testuser   | Test User  |
+| 2      | testuser1  | Test User1 |
+| 3      | testuser2  | Test User2 |
+| 4      | userA      | User A     |
+| 5      | userB      | User B     |
+| 6      | userC      | User C     |
+
+## 請在Explore Follow以下管理者
+@test1
+@test2
+會持續優化並處理OAuth的相關問題，並更新測試影片連結供參考，若沒有問題UserA, B, C會模擬三位名人的twitter，敬請期待
+
+## 應用程式功能概述
+
+### 認證與註冊
+
+- **OAuth 登入**：支援 GitHub 和 Google OAuth 登入
+  - 新用戶會自動生成臨時 User ID 並創建帳戶
+  - 首次登入後會引導至個人資料編輯頁面設置正式 User ID
+- **測試登入**：提供後門測試登入機制，使用 User ID 和 Name 驗證
+
+### 發文功能
+
+- **發文**：支援最多 280 字元的文字內容
+- **內容解析**：
+  - URL 自動識別並轉換為可點擊連結（每個 URL 固定計為 23 字元）
+  - Hashtag（`#hashtag`）顯示為藍色，不計入字元數
+  - Mention（`@userID`）顯示為藍色，點擊跳轉到用戶個人頁面，不計入字元數
+- **文章管理**：編輯和刪除自己的文章
+
+### 互動功能
+
+- **按讚（Like）**：對文章按讚或取消按讚
+- **轉發（Repost）**：轉發文章到自己的個人頁面
+- **留言（Comment）**：支援多層留言回覆，形成樹狀結構
+
+### 關注系統
+
+- **關注/取消關注**：關注其他用戶或取消關注
+- **Feed 過濾**：
+  - **All 標籤**：顯示自己的文章和所有關注用戶的文章
+  - **Following 標籤**：只顯示關注用戶的文章
+
+### 通知系統
+
+- **通知類型**：Follow、Like、Comment、Repost、Post 通知
+- **即時通知**：當關注的用戶發文時，會在所有路由顯示 Toast 通知
+- **通知管理**：查看通知列表，標記為已讀
+
+### 聊天功能
+
+- **互相關注聊天**：只有互相關注的用戶才能互相發送訊息
+- **即時訊息**：使用 Pusher 實現即時訊息傳送
+- **訊息內容**：支援純文字和超連結
+
+### 草稿管理
+
+- **保存草稿**：在發文編輯器中保存未完成的文章
+- **草稿列表**：查看、編輯、刪除所有草稿
+
+### 個人資料
+
+- **查看個人資料**：查看自己的或其他用戶的個人頁面
+- **編輯個人資料**：修改 User ID、Name、Bio、頭像、背景圖片
+- **個人頁面標籤**：Posts、Reposts、Likes、Followers、Following
+
+### 即時更新
+
+使用 Pusher 實現即時更新功能，包括：
+- 文章按讚數、留言數、轉發數即時更新
+- 新文章通知（Toast 通知）
+- 聊天訊息即時傳送
+- 關注者數量即時更新
+
+### 內容限制與規則
+
+- **字元數限制**：文章和留言最多 280 字元
+- **User ID 規則**：必須唯一，新註冊時為小寫字母和數字，最多 20 個字元
+- **權限控制**：只有作者可以編輯或刪除自己的內容
+
+## 測試結構
+
+```
+test/
+├── e2e/          # Playwright E2E 測試
+├── unit/         # Vitest 單元測試
+└── scripts/      # 手動測試腳本
+```
+
+## 環境設置
 
 ### 前置需求
 
-- Node.js 18+
-- MongoDB (本地或 Atlas)
-- (可選) Pusher 帳號
+1. 確保 `.env.local` 已設置並包含：
+   - `LOCAL_AUTH=true` (本地開發模式)
+   - `DATABASE_URL` (MongoDB 連接字串)
+   - `NEXTAUTH_SECRET`
+   - `NEXT_PUBLIC_PUSHER_KEY` 和 `NEXT_PUBLIC_PUSHER_CLUSTER` (可選，用於即時功能測試)
 
-### 安裝
+2. 確保資料庫已初始化：
+   ```bash
+   npm run db:generate
+   npm run db:push
+   ```
 
-```bash
-# 安裝依賴
-npm install
+## E2E 測試 (Playwright)
 
-# 生成 Prisma Client
-npm run db:generate
-
-# 同步資料庫 Schema
-npm run db:push
-```
-
-### 環境變數設置
-
-建立 `.env.local` 檔案（參考 `.env.example`）：
-
-```env
-# Database
-DATABASE_URL="mongodb://localhost:27017/x_like_app"
-
-# NextAuth
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="your-secret-key-here"
-
-# OAuth Providers (可選)
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
-GITHUB_ID=""
-GITHUB_SECRET=""
-FACEBOOK_CLIENT_ID=""
-FACEBOOK_CLIENT_SECRET=""
-
-# Pusher (可選，用於即時功能)
-PUSHER_APP_ID=""
-PUSHER_KEY=""
-PUSHER_SECRET=""
-PUSHER_CLUSTER=""
-NEXT_PUBLIC_PUSHER_KEY=""
-NEXT_PUBLIC_PUSHER_CLUSTER=""
-
-# Feature Toggle
-LOCAL_AUTH=true  # 本地開發時設為 true
-```
-
-### 執行開發伺服器
+### 安裝 Playwright 瀏覽器
 
 ```bash
-npm run dev
-```
-
-開啟 [http://localhost:3000](http://localhost:3000) 查看應用程式。
-
-### 本地認證模式
-
-當 `LOCAL_AUTH=true` 時，可以訪問 `/auth/local` 進行本地登入，無需設置 OAuth providers。
-
-## 測試
-
-### E2E 測試 (Playwright)
-
-```bash
-# 安裝 Playwright 瀏覽器
 npx playwright install
+```
 
-# 執行 E2E 測試
+### 執行測試
+
+在 VSCode/Cursor terminal 中執行：
+
+```bash
+# 執行所有 E2E 測試
 npm run test:e2e
 
-# UI 模式
+# 執行特定測試檔案
+npm run test:e2e -- auth.spec.ts
+
+# 使用 UI 模式執行測試
 npm run test:e2e:ui
 ```
 
-### 單元測試 (Vitest)
+### 測試項目
+
+- `auth.spec.ts` - 認證流程測試（OAuth 與 LOCAL_AUTH）
+- `posts.spec.ts` - 發文/按讚/留言/轉發完整流程測試
+- `realtime.spec.ts` - Pusher 即時更新測試（多用戶同時操作）
+- `profile.spec.ts` - 個人頁面與追蹤功能測試
+
+## 單元測試 (Vitest)
+
+### 執行測試
 
 ```bash
-# 執行單元測試
+# 執行所有單元測試
 npm test
 
 # 監聽模式
 npm test -- --watch
+
+# 執行特定測試檔案
+npm test -- content-parser.test.ts
 ```
 
-詳細測試文檔請參考 [test/README.md](test/README.md)
+### 測試項目
 
-## 專案結構
+- `content-parser.test.ts` - 內容解析測試（hashtag/mention/link）
+- `character-count.test.ts` - 字元計數邏輯測試（URL 23 字元規則）
+- `api-helpers.test.ts` - API 工具函數測試
 
-詳細的功能對應檔案索引請參考 [plan/structure.md](plan/structure.md)
+## 手動測試腳本
 
+### 資料庫種子腳本
+
+建立測試資料：
+
+```bash
+# 使用 Node.js 執行
+node test/scripts/seed-db.ts
+
+# 或使用 tsx (如果已安裝)
+tsx test/scripts/seed-db.ts
 ```
-src/
-├── app/              # Next.js App Router
-│   ├── api/          # API Routes
-│   ├── [userId]/     # 使用者頁面
-│   ├── posts/        # 文章詳情
-│   └── drafts/       # 草稿頁
-├── components/       # React 組件
-├── lib/              # 工具函數
-├── hooks/            # React Hooks
-└── types/            # TypeScript 類型
+
+### API 測試腳本
+
+測試 API 端點（Windows PowerShell）：
+
+```powershell
+# 執行 API 測試腳本
+.\test\scripts\test-api.ps1
 ```
 
-## 部署
+測試項目包括：
+- 認證 API
+- 使用者 API
+- 文章 API
+- 留言 API
+- 按讚 API
+- 追蹤 API
+- 草稿 API
 
-### Vercel 部署
+## 本地開發測試流程
 
-1. 將專案推送到 GitHub
-2. 在 Vercel 中匯入專案
-3. 設置環境變數（參考 `.env.example`）
-4. 將 `LOCAL_AUTH` 設為 `false`
-5. 部署
+1. **啟動開發伺服器**：
+   ```bash
+   npm run dev
+   ```
 
-### 環境變數設置
+2. **在另一個 terminal 執行測試**：
+   ```bash
+   # E2E 測試
+   npm run test:e2e
 
-在 Vercel 專案設定中，添加所有必要的環境變數：
-- `DATABASE_URL` (MongoDB Atlas 連接字串)
-- `NEXTAUTH_URL` (你的 Vercel URL)
-- `NEXTAUTH_SECRET`
-- OAuth provider credentials
-- Pusher credentials
+   # 單元測試
+   npm test
+   ```
 
-## 開發指南
-
-### 新增功能
-
-1. 參考 [plan/structure.md](plan/structure.md) 找到相關檔案
-2. 遵循現有的檔案結構和命名規範
-3. 更新對應的文檔
-
-### API 端點
-
-所有 API 端點位於 `src/app/api/` 目錄下，遵循 RESTful 規範。
-
-### 資料庫操作
-
-使用 Prisma Client 進行資料庫操作：
-
-```typescript
-import { prisma } from '@/lib/prisma'
-
-const posts = await prisma.post.findMany()
-```
+3. **檢查測試結果**：
+   - E2E 測試會在瀏覽器中自動執行
+   - 單元測試會在 terminal 顯示結果
 
 ## 注意事項
 
-- 所有 API routes 需要驗證 session（除公開端點）
-- 字元計數：URL 固定 23 字元，hashtag/mention 不計入
-- Cursor-based 分頁使用 `createdAt` timestamp
-- Repost 不允許編輯/刪除原始文章
-- 遵循 Next.js File-Based Routing 命名規範
+- 確保在執行測試前，開發伺服器已啟動（`npm run dev`）
+- E2E 測試需要瀏覽器環境，確保已安裝 Playwright 瀏覽器
+- 測試會使用測試資料庫，不會影響生產資料
+- 如果測試失敗，檢查 `.env.local` 配置是否正確
 
-## 授權
 
-MIT
+
+
+
+
+
+
+
+
+
