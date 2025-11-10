@@ -13,10 +13,12 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material'
+import { useToast } from '@/components/providers/ToastProvider'
 
 export default function RegisterPage() {
   const router = useRouter()
   const { data: session, status } = useSession()
+  const { showToast } = useToast()
   const [userId, setUserId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -159,10 +161,19 @@ export default function RegisterPage() {
       const data = await response.json()
 
       if (response.ok) {
-        // Registration successful, redirect to home
-        window.location.href = '/'
+        // Registration successful
+        const successMsg = data.message || '註冊成功！歡迎加入！'
+        showToast(successMsg, 'success')
+        console.log('[Register] 註冊成功，用戶:', data.user)
+        // Redirect to home after a short delay
+        setTimeout(() => {
+          window.location.href = '/'
+        }, 1000)
       } else {
-        setError(data.error || '註冊失敗')
+        const errorMsg = data.error || '註冊失敗'
+        setError(errorMsg)
+        showToast(errorMsg, 'error')
+        console.error('[Register] 註冊失敗:', errorMsg)
       }
     } catch (error) {
       console.error('Registration error:', error)
@@ -196,7 +207,18 @@ export default function RegisterPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             您已通過 OAuth 認證，請選擇一個 User ID 來完成註冊。
             <br />
-            <Typography component="span" variant="caption" color="text.secondary">
+            {session?.provider && (
+              <Typography component="span" variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                登入方式: {session.provider === 'github' ? 'GitHub' : session.provider === 'google' ? 'Google' : session.provider}
+                {session.user?.email && (
+                  <>
+                    <br />
+                    Email: {session.user.email}
+                  </>
+                )}
+              </Typography>
+            )}
+            <Typography component="span" variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
               此 User ID 將用於識別您的帳號，之後可以使用此 ID 登入。
             </Typography>
           </Typography>

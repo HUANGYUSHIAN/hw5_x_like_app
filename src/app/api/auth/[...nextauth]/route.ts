@@ -9,14 +9,16 @@ let GET: any
 let POST: any
 
 try {
+  // 在生产环境也输出日志，帮助调试
+  console.log('[NextAuth] Initializing NextAuth...')
+  console.log('[NextAuth] Providers count:', authOptions.providers?.length || 0)
+  
   const authResult = NextAuth(authOptions)
   
   // 调试：检查 NextAuth 返回的结构
-  if (process.env.NODE_ENV === 'development') {
-    console.log('NextAuth result type:', typeof authResult)
-    if (authResult && typeof authResult === 'object') {
-      console.log('NextAuth result keys:', Object.keys(authResult))
-    }
+  console.log('[NextAuth] NextAuth result type:', typeof authResult)
+  if (authResult && typeof authResult === 'object') {
+    console.log('[NextAuth] NextAuth result keys:', Object.keys(authResult))
   }
   
   // 尝试新 API (NextAuth v5 beta)

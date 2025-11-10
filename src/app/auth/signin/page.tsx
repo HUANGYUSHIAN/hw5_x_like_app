@@ -29,6 +29,59 @@ export default function SignInPage() {
     google: boolean
   }>({ github: false, google: false })
 
+  // 检查 URL 参数中的错误信息（NextAuth 错误）
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const errorParam = params.get('error')
+    if (errorParam) {
+      let errorMessage = '登入失敗'
+      switch (errorParam) {
+        case 'Configuration':
+          errorMessage = 'OAuth 配置錯誤，請聯繫管理員'
+          break
+        case 'AccessDenied':
+          errorMessage = '登入被拒絕，請確保已授權 email 權限'
+          break
+        case 'Verification':
+          errorMessage = '驗證失敗，請重試'
+          break
+        case 'OAuthSignin':
+          errorMessage = 'OAuth 登入失敗，請重試'
+          break
+        case 'OAuthCallback':
+          errorMessage = 'OAuth 回調失敗，請重試'
+          break
+        case 'OAuthCreateAccount':
+          errorMessage = '無法創建帳戶，請重試'
+          break
+        case 'EmailCreateAccount':
+          errorMessage = '無法創建帳戶，請重試'
+          break
+        case 'Callback':
+          errorMessage = '回調錯誤，請重試'
+          break
+        case 'OAuthAccountNotLinked':
+          errorMessage = '此 OAuth 帳戶未與現有帳戶關聯'
+          break
+        case 'EmailSignin':
+          errorMessage = 'Email 登入失敗，請重試'
+          break
+        case 'CredentialsSignin':
+          errorMessage = '憑證登入失敗，請檢查您的帳號密碼'
+          break
+        case 'SessionRequired':
+          errorMessage = '需要登入才能訪問此頁面'
+          break
+        default:
+          errorMessage = `登入失敗：${errorParam}`
+      }
+      setError(errorMessage)
+      showToast(errorMessage, 'error')
+      // 清除 URL 中的 error 参数
+      router.replace('/auth/signin')
+    }
+  }, [router, showToast])
+
   // 获取可用的 OAuth providers
   useEffect(() => {
     const fetchProviders = async () => {

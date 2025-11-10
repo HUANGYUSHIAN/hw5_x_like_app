@@ -47,12 +47,16 @@ async function getTestAuthSession(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // First, check for test-auth-token (backdoor for test login)
+    // 测试登录优先于 OAuth 登录，避免冲突
     const testSession = await getTestAuthSession(request)
     if (testSession) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Session API] Using test-auth-token session')
+      }
       return NextResponse.json(testSession)
     }
 
-    // Otherwise, use NextAuth
+    // Otherwise, use NextAuth (OAuth login)
     const token = await getToken({
       req: request,
       secret: process.env.NEXTAUTH_SECRET,

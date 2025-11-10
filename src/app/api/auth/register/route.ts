@@ -119,8 +119,15 @@ export async function POST(request: NextRequest) {
     })
 
     // Update cookie with new token
+    console.log('[Register] ✓ 註冊成功:', {
+      userId: user.userId,
+      email: user.email,
+      id: user.id,
+    })
+    
     const response = NextResponse.json({
       success: true,
+      message: '註冊成功！歡迎加入！',
       user: {
         id: user.id,
         userId: user.userId,

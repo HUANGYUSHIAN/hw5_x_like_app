@@ -31,34 +31,73 @@ export async function middleware(request: NextRequest) {
   }
 
   // First, check for test-auth-token (backdoor for test login)
+  // 测试登录使用独立的 test-auth-token，与 OAuth 登录分离
   const hasTestAuth = await checkTestAuth(request)
   if (hasTestAuth) {
     // Test login is valid, allow access
+    // 测试登录不需要检查 NextAuth token
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Middleware] Test auth token found, allowing access')
+    }
     return NextResponse.next()
+  }
+  
+  // 如果存在 test-auth-token 但验证失败，清除它以避免冲突
+  const testToken = request.cookies.get('test-auth-token')?.value
+  if (testToken && !hasTestAuth) {
+    console.log('[Middleware] Invalid test-auth-token found, will be cleared on logout')
   }
 
   // Otherwise, use NextAuth
+  // 检查所有可能的 cookie 名称
+  const cookieNames = [
+    '__Secure-next-auth.session-token',
+    'next-auth.session-token',
+    '__Host-next-auth.session-token',
+  ]
+  
+  const cookies = cookieNames.map(name => ({
+    name,
+    value: request.cookies.get(name)?.value || null,
+  }))
+  
+  // 在生产环境也输出日志（用于调试）
+  if (pathname === '/') {
+    console.log('[Middleware] Cookie check:', {
+      cookies: cookies.map(c => ({ name: c.name, hasValue: !!c.value })),
+      allCookies: Array.from(request.cookies.getAll()).map(c => c.name),
+    })
+  }
+  
   const token = await getToken({ 
     req: request,
-    secret: process.env.NEXTAUTH_SECRET
+    secret: process.env.NEXTAUTH_SECRET,
+    // 显式指定 cookie 名称（NextAuth v5 可能需要）
+    cookieName: process.env.NODE_ENV === 'production' 
+      ? '__Secure-next-auth.session-token' 
+      : 'next-auth.session-token',
   })
 
-  // Debug logging in development
-  if (process.env.NODE_ENV === 'development' && pathname === '/') {
+  // Debug logging (生产环境也输出)
+  if (pathname === '/') {
     console.log('[Middleware] Token check:', {
       hasToken: !!token,
       needsRegistration: token?.needsRegistration,
       needsUserIdSetup: token?.needsUserIdSetup,
       userId: token?.userId,
       sub: token?.sub,
+      cookieName: process.env.NODE_ENV === 'production' 
+        ? '__Secure-next-auth.session-token' 
+        : 'next-auth.session-token',
     })
   }
 
   // If not authenticated, redirect to login
   if (!token) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Middleware] No token found, redirecting to /auth/signin')
-    }
+    console.log('[Middleware] No token found, redirecting to /auth/signin', {
+      pathname,
+      cookies: cookies.map(c => ({ name: c.name, hasValue: !!c.value })),
+    })
     return NextResponse.redirect(new URL('/auth/signin', request.url))
   }
 
