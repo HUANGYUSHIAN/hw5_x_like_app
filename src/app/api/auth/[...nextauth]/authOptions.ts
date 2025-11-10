@@ -213,19 +213,33 @@ export const authOptions: NextAuthConfig = {
         
         if (user.email) {
           // 优先根据 email 查找
-          dbUser = await prisma.user.findUnique({
-            where: { email: user.email },
-          })
+          try {
+            dbUser = await prisma.user.findUnique({
+              where: { email: user.email },
+            })
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[JWT] User lookup by email:', user.email, dbUser ? 'found' : 'not found')
+            }
+          } catch (error) {
+            console.error('[JWT] Error looking up user by email:', error)
+          }
         }
         
         // 如果根据 email 没找到，尝试根据 provider + providerId 查找（兼容旧数据）
         if (!dbUser) {
-          dbUser = await prisma.user.findFirst({
-            where: {
-              provider: account.provider,
-              providerId: account.providerAccountId,
-            },
-          })
+          try {
+            dbUser = await prisma.user.findFirst({
+              where: {
+                provider: account.provider,
+                providerId: account.providerAccountId,
+              },
+            })
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[JWT] User lookup by provider:', account.provider, account.providerAccountId, dbUser ? 'found' : 'not found')
+            }
+          } catch (error) {
+            console.error('[JWT] Error looking up user by provider:', error)
+          }
         }
         
         if (dbUser) {
@@ -237,6 +251,9 @@ export const authOptions: NextAuthConfig = {
           token.loginIdentifier = dbUser.email || dbUser.userId
           token.needsUserIdSetup = false
           token.needsRegistration = false
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[JWT] Existing user found:', dbUser.userId, 'token.sub:', token.sub)
+          }
         } else {
           // New user - email 不存在于数据库中，需要注册
           // 存储 OAuth 信息，等待用户输入 userId
@@ -249,6 +266,9 @@ export const authOptions: NextAuthConfig = {
           token.needsUserIdSetup = false
           // 不设置 token.sub，因为用户还未创建
           delete token.sub
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[JWT] New user, needs registration:', user.email)
+          }
         }
       } else if (token.sub) {
         // Subsequent requests - validate token.sub is MongoDB ObjectID format
@@ -310,6 +330,18 @@ export const authOptions: NextAuthConfig = {
       }
 
       return true
+    },
+    async redirect({ url, baseUrl }) {
+      // 如果 URL 是相对路径，使用 baseUrl
+      if (url.startsWith('/')) {
+        return `${baseUrl}${url}`
+      }
+      // 如果 URL 是同一个域名，允许重定向
+      if (new URL(url).origin === baseUrl) {
+        return url
+      }
+      // 否则重定向到首页
+      return baseUrl
     },
   },
   pages: {

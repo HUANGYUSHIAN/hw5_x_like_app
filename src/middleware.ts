@@ -43,8 +43,22 @@ export async function middleware(request: NextRequest) {
     secret: process.env.NEXTAUTH_SECRET
   })
 
+  // Debug logging in development
+  if (process.env.NODE_ENV === 'development' && pathname === '/') {
+    console.log('[Middleware] Token check:', {
+      hasToken: !!token,
+      needsRegistration: token?.needsRegistration,
+      needsUserIdSetup: token?.needsUserIdSetup,
+      userId: token?.userId,
+      sub: token?.sub,
+    })
+  }
+
   // If not authenticated, redirect to login
   if (!token) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Middleware] No token found, redirecting to /auth/signin')
+    }
     return NextResponse.redirect(new URL('/auth/signin', request.url))
   }
 
