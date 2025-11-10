@@ -1,0 +1,165 @@
+// Prisma Schema for X-like App
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @unique // 使用者選的 userID (string)
+  name          String
+  email         String?
+  avatarUrl     String?
+  bio           String?
+  backgroundUrl String?
+  provider      String   // e.g. 'google'|'github'|'facebook'|'local'
+  providerId    String   // provider 的 user id
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  posts         Post[]   @relation("author_posts")
+  likes         Like[]
+  reposts       Repost[]
+  followers     Follow[] @relation("following_relation")
+  following     Follow[] @relation("follower_relation")
+  drafts        Draft[]
+  comments      Comment[]
+  notifications Notification[] @relation("user_notifications")
+  actorNotifications Notification[] @relation("actor_notifications")
+  sentMessages  Message[] @relation("sent_messages")
+  receivedMessages Message[] @relation("received_messages")
+
+  @@unique([email])
+  @@map("users")
+}
+
+model Post {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  author      User      @relation("author_posts", fields: [authorId], references: [id])
+  authorId    String    @db.ObjectId
+  content     String
+  imageUrl   String?   // 圖片 URL
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime? @updatedAt
+
+  likes       Like[]
+  comments    Comment[] @relation("post_comments")
+  reposts     Repost[]
+  notifications Notification[]
+
+  @@index([authorId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  post      Post     @relation("post_comments", fields: [postId], references: [id])
+  postId    String   @db.ObjectId
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String   @db.ObjectId
+  content   String
+  parentId  String?  @db.ObjectId // recursive comments: null = top-level comment
+  createdAt DateTime @default(now())
+  parent    Comment? @relation("comment_replies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies   Comment[] @relation("comment_replies")
+  notifications Notification[]
+
+  @@index([postId, createdAt(sort: Desc)])
+  @@index([parentId])
+  @@map("comments")
+}
+
+model Like {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @db.ObjectId
+  post      Post     @relation(fields: [postId], references: [id])
+  postId    String   @db.ObjectId
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@index([postId])
+  @@map("likes")
+}
+
+model Follow {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  follower    User     @relation("follower_relation", fields: [followerId], references: [id])
+  followerId  String   @db.ObjectId
+  following   User     @relation("following_relation", fields: [followingId], references: [id])
+  followingId String   @db.ObjectId
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+model Repost {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @db.ObjectId
+  post      Post     @relation(fields: [postId], references: [id])
+  postId    String   @db.ObjectId
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@index([postId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("reposts")
+}
+
+model Draft {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String   @db.ObjectId
+  content   String
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([authorId])
+  @@map("drafts")
+}
+
+model Notification {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  user      User     @relation("user_notifications", fields: [userId], references: [id])
+  userId    String   @db.ObjectId
+  type      String   // 'like' | 'comment' | 'repost' | 'follow' | 'post'
+  actorId   String   @db.ObjectId // 执行操作的用户 ID
+  actor     User?    @relation("actor_notifications", fields: [actorId], references: [id])
+  postId    String?  @db.ObjectId // 相关的 post ID (like, comment, repost, post)
+  post      Post?    @relation(fields: [postId], references: [id])
+  commentId String?  @db.ObjectId // 相关的 comment ID (comment)
+  comment   Comment? @relation(fields: [commentId], references: [id])
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+model Message {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  sender    User     @relation("sent_messages", fields: [senderId], references: [id])
+  senderId  String   @db.ObjectId
+  receiver  User     @relation("received_messages", fields: [receiverId], references: [id])
+  receiverId String  @db.ObjectId
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([senderId, receiverId, createdAt(sort: Desc)])
+  @@index([receiverId, senderId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+
+

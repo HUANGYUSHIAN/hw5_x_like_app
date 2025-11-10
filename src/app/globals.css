@@ -1,26 +1,25 @@
-@import "tailwindcss";
+/* Move Next.js compiling indicator to bottom right */
+/* This is a development-only overlay, will not appear in production builds */
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Target Next.js dev indicator overlay */
+#__next-build-watcher,
+.next-dev-overlay,
+[data-nextjs-dialog],
+div[data-nextjs-toast],
+div[style*="position: fixed"][style*="bottom"][style*="left"] {
+  left: auto !important;
+  right: 20px !important;
+  bottom: 20px !important;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* More specific targeting for Next.js dev overlay */
+body > div[style*="position: fixed"] {
+  left: auto !important;
+  right: 20px !important;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Target the specific Next.js dev indicator */
+div[style*="z-index: 9999"][style*="position: fixed"][style*="bottom"] {
+  left: auto !important;
+  right: 20px !important;
 }
