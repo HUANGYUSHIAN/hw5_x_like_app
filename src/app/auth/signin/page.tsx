@@ -16,6 +16,7 @@ import {
 import GoogleIcon from '@mui/icons-material/Google'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import { useToast } from '@/components/providers/ToastProvider'
+import UpdateNotes from '@/components/UpdateNotes'
 
 export default function SignInPage() {
   const router = useRouter()
@@ -194,6 +195,10 @@ export default function SignInPage() {
           <Typography variant="h5" gutterBottom align="center">
             登入
           </Typography>
+          
+          {/* 更新说明栏 */}
+          <UpdateNotes />
+          
           <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 3 }}>
             選擇 OAuth 提供者（Google 或 GitHub）進行登入
             <br />
