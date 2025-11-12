@@ -1,7 +1,6 @@
 本次更新如下:
-
+0. 推薦Follow @test1, @test2, @userA, @userB, @userC
 1. 排除Github與Google OAuth因相同email導致唯一性衝突而觸發redirect回登入頁面
-
 2. 初次登入修改userID或是修改userID成功後會自動登出，請重新登入
-
-3.登入demo:https://youtu.be/HhZL5Lh4H0I
+3. 登入demo:https://youtu.be/HhZL5Lh4H0I
+4. 網站功能demo:https://youtu.be/Nzf20GCRt1I

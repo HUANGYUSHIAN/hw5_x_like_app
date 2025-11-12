@@ -11,8 +11,9 @@ interface MessageContentProps {
  * 只支持纯文本和 hyperlink
  */
 export default function MessageContent({ content }: MessageContentProps) {
-  // URL 正则：匹配 http://, https://, www., 或域名格式
-  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}[^\s]*)/gi
+  // URL 正则：只匹配明確的 URL 格式（http://, https://, 或 www. 開頭）
+  // 避免誤識別普通文本為連結
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}[^\s]*)/gi
 
   const parts: (string | React.ReactElement)[] = []
   let lastIndex = 0
@@ -29,8 +30,8 @@ export default function MessageContent({ content }: MessageContentProps) {
 
   // 构建渲染部分
   if (urlMatches.length === 0) {
-    // 没有 URL，直接返回文本
-    return <Typography variant="body2">{content}</Typography>
+    // 没有 URL，直接返回文本（保留换行）
+    return <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{content}</Typography>
   }
 
   // 有 URL，需要分割文本和链接
@@ -70,7 +71,7 @@ export default function MessageContent({ content }: MessageContentProps) {
   }
 
   return (
-    <Typography variant="body2" component="div">
+    <Typography variant="body2" component="div" sx={{ whiteSpace: 'pre-line' }}>
       {parts.map((part, idx) => (
         <span key={idx}>{part}</span>
       ))}

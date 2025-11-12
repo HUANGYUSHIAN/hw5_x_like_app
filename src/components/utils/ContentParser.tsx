@@ -32,9 +32,10 @@ export default function ContentParser({ content, variant = 'body1' }: ContentPar
   const parts: (string | React.ReactElement)[] = []
   let lastIndex = 0
   
-  // 改進的正則表達式，優先匹配 URL（避免與 hashtag/mention 衝突）
-  // URL 正則：匹配 http://, https://, www., 或域名格式
-  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}[^\s]*)/gi
+  // 改進的正則表達式，只匹配明確的 URL 格式
+  // 只匹配 http://, https://, 或 www. 開頭的 URL，避免誤識別普通文本為連結
+  // 不匹配純域名格式（如 xlike.app），除非有明確的協議或 www. 前綴
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}[^\s]*)/gi
   const hashtagRegex = /#(\w+)/g
   const mentionRegex = /@(\w+)/g
   
@@ -161,7 +162,11 @@ export default function ContentParser({ content, variant = 'body1' }: ContentPar
   }
 
   return (
-    <Typography variant={variant} component="div">
+    <Typography 
+      variant={variant} 
+      component="div"
+      sx={{ whiteSpace: 'pre-line' }}
+    >
       {parts.length > 0 ? parts : text}
     </Typography>
   )

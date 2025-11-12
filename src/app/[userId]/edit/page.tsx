@@ -52,6 +52,8 @@ export default function EditProfilePage() {
   const [needsUserIdSetup, setNeedsUserIdSetup] = useState(false)
   const [checkingUserId, setCheckingUserId] = useState(false)
   const [userIdAvailable, setUserIdAvailable] = useState<boolean | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [lastEditTime, setLastEditTime] = useState<number>(0)
 
   useEffect(() => {
     if (status === 'loading') return
@@ -62,6 +64,14 @@ export default function EditProfilePage() {
     }
 
     const fetchUserProfile = async () => {
+      // 如果用户正在编辑（最近 5 分钟内），不自动刷新数据
+      // 这样可以防止用户在输入时数据被重置
+      const now = Date.now()
+      if (isEditing && (now - lastEditTime) < 5 * 60 * 1000) {
+        console.log('[Edit Profile] 用户正在编辑，跳过自动刷新')
+        return
+      }
+      
       try {
         // 优先使用 session 中的 userId 来获取数据，因为 userId 可能刚被修改
         // 如果 targetUserId 与 session.user.userId 不匹配，可能是：
@@ -147,12 +157,14 @@ export default function EditProfilePage() {
     }
 
     fetchUserProfile()
-  }, [session, status, targetUserId, router])
+  }, [session, status, targetUserId, router, isEditing, lastEditTime])
 
   const handleUserIdChange = (value: string) => {
     setUserId(value)
     setUserIdError(null)
     setUserIdAvailable(null) // Reset availability status when user types
+    setIsEditing(true)
+    setLastEditTime(Date.now())
     
     // Validate userId format
     if (value && !/^[a-zA-Z0-9_]+$/.test(value)) {
@@ -338,6 +350,10 @@ export default function EditProfilePage() {
         setNeedsUserIdSetup(false)
       }
       
+      // 重置编辑状态
+      setIsEditing(false)
+      setLastEditTime(0)
+      
       // After saving, clear session and redirect to signin page
       // This ensures the user needs to re-login with the new userID
       // Store old userID in localStorage temporarily in case we need to recover
@@ -496,7 +512,11 @@ export default function EditProfilePage() {
           fullWidth
           margin="normal"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value)
+            setIsEditing(true)
+            setLastEditTime(Date.now())
+          }}
           required
           helperText="Your display name (shown to other users)"
         />
@@ -520,7 +540,11 @@ export default function EditProfilePage() {
           multiline
           rows={4}
           value={bio}
-          onChange={(e) => setBio(e.target.value)}
+          onChange={(e) => {
+            setBio(e.target.value)
+            setIsEditing(true)
+            setLastEditTime(Date.now())
+          }}
           placeholder="Tell us about yourself..."
           inputProps={{ maxLength: 500 }}
           helperText={`${bio.length}/500 characters`}
